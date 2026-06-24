@@ -687,6 +687,31 @@ button:disabled {
   margin-top: 19px;
 }
 
+.lobby-actions {
+  display: grid;
+  margin-top: 19px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.lobby-actions > * {
+  width: 100%;
+  margin-top: 0;
+}
+
+.remove-bot-button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  place-items: center;
+  color: #ff9daa;
+  border: 1px solid rgba(255, 89, 109, 0.22);
+  border-radius: 7px;
+  background: rgba(255, 89, 109, 0.07);
+  cursor: pointer;
+}
+
 .waiting-message {
   display: flex;
   min-height: 43px;
@@ -1652,6 +1677,129 @@ button:disabled {
   background: rgba(255, 255, 255, 0.018);
 }
 
+.side-toggle {
+  display: grid;
+  margin-bottom: 8px;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.side-toggle button {
+  display: flex;
+  min-height: 35px;
+  align-items: center;
+  justify-content: center;
+  color: #879d97;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  gap: 5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.side-toggle button.active.long {
+  color: var(--mint);
+  border-color: rgba(104, 229, 196, 0.38);
+  background: rgba(104, 229, 196, 0.09);
+}
+
+.side-toggle button.active.short {
+  color: #ff9eaa;
+  border-color: rgba(255, 89, 109, 0.32);
+  background: rgba(255, 89, 109, 0.08);
+}
+
+.control-label {
+  display: block;
+  margin: 8px 0 5px;
+  color: #8fa49e;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.leverage-buttons {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+
+.leverage-buttons button {
+  min-height: 30px;
+  padding: 0;
+  color: #829892;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.leverage-buttons button.active {
+  color: #071710;
+  border-color: var(--gold);
+  background: var(--gold);
+}
+
+.auto-exit-grid {
+  display: grid;
+  margin-top: 9px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.auto-exit-grid label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.auto-exit-grid span {
+  color: #829892;
+  font-weight: 700;
+}
+
+.auto-exit-grid select {
+  width: 100%;
+  min-height: 32px;
+  padding: 0 5px;
+  color: #e8f5f1;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  outline: none;
+  background: #0b1d1a;
+}
+
+.exposure-summary {
+  display: flex;
+  margin: 9px 0 5px;
+  padding: 7px;
+  align-items: center;
+  justify-content: center;
+  color: #829892;
+  border: 1px solid rgba(244, 189, 87, 0.17);
+  border-radius: 6px;
+  background: rgba(244, 189, 87, 0.045);
+  gap: 6px;
+}
+
+.exposure-summary strong {
+  color: #f5cd7f;
+}
+
+.buy-button.short {
+  color: white;
+  background: linear-gradient(135deg, #d9475f, #ff7589);
+}
+
+.risk-note {
+  margin: 7px 2px 0;
+  color: #8f777b;
+  line-height: 1.35;
+}
+
 .amount-buttons {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1718,6 +1866,12 @@ button:disabled {
 
 .position-card span {
   font-size: 8px;
+}
+
+.position-card em {
+  margin-top: 3px;
+  color: #80958f;
+  font-style: normal;
 }
 
 .position-card p {
@@ -2231,6 +2385,48 @@ button:disabled {
   50% { opacity: 0.48; transform: scale(0.82); }
 }
 
+/* Readability floor: no gameplay or onboarding copy is rendered below 12px. */
+.welcome-screen :is(button, input, small, p, em),
+.lobby-screen :is(button, input, small, p, em),
+.tutorial-screen :is(button, input, small, p, em),
+.briefing-wait :is(button, input, small, p, em),
+.results-screen :is(button, input, small, p, em),
+.game-shell :is(button, input, select, small, p, em) {
+  font-size: 12px !important;
+}
+
+.eyebrow,
+.lobby-title > span,
+.field > span,
+.asset-shop > small,
+.owned-assets > small,
+.panel-heading > span,
+.desk-header span,
+.market-overlay span,
+.selected-player-strip small,
+.public-stat span,
+.control-label,
+.auto-exit-grid span,
+.tutorial-copy > small,
+.formula-card span,
+.ready-card > small,
+.results-panel > small {
+  font-size: 12px !important;
+}
+
+.standing-copy > strong,
+.standing-money strong,
+.asset-tabs strong,
+.shop-list strong,
+.asset-shop strong,
+.owned-assets strong,
+.event-list strong,
+.position-card strong,
+.life-summary strong,
+.public-stat strong {
+  font-size: 12px;
+}
+
 @media (max-width: 1200px) {
   .welcome-copy {
     width: 48vw;
@@ -2431,6 +2627,10 @@ button:disabled {
   }
 
   .lobby-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .lobby-actions {
     grid-template-columns: 1fr;
   }
 

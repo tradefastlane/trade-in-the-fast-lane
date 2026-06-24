@@ -2,9 +2,18 @@ export type GameStatus = "lobby" | "briefing" | "playing" | "finished";
 
 export type AvatarId = "alex" | "mina" | "dante" | "jules";
 
+export type PositionSide = "long" | "short";
+
 export type Holding = {
   shares: number;
   averagePrice: number;
+  side: PositionSide;
+  leverage: number;
+  margin: number;
+  stopLossPct: number;
+  takeProfitPct: number;
+  trailingPct: number;
+  bestRoiPct: number;
 };
 
 export type OwnedAsset = {
@@ -30,6 +39,9 @@ export type PlayerState = {
   latestTrade: string;
   bestTrade: string;
   connectedAt: number;
+  isBot: boolean;
+  botSkill: number;
+  nextBotActionAt: number;
 };
 
 export type MarketState = {

@@ -51,6 +51,7 @@ import {
   homeOptions,
 } from "./game/catalog";
 import {
+  addSmartBot,
   addEvent,
   buyAsset,
   buyStock,
@@ -66,7 +67,10 @@ import {
   moveHome,
   netWorth,
   portfolioValue,
+  positionEquity,
+  positionRoiPct,
   possessionsValue,
+  removeBot,
   sellAsset,
   sellStock,
   tickGame,
@@ -78,6 +82,7 @@ import type {
   MarketState,
   PersistedGame,
   PlayerState,
+  PositionSide,
 } from "./game/types";
 import {
   createPersistedGame,
@@ -127,8 +132,8 @@ const tutorialSteps = [
   },
   {
     eyebrow: "YOUR TRADING DESK",
-    title: "Buying and selling is intentionally simple.",
-    body: "Choose a stock, choose an amount and buy. Sell the entire position whenever you want. Prices move for every player at the same time.",
+    title: "Take a side, choose leverage, protect the trade.",
+    body: "Open a long or short position with leverage from 1× to 100×. Optional stop-loss, take-profit and trailing-exit presets close the trade automatically.",
     icon: TrendingUp,
     accent: "#b991ff",
   },
@@ -142,7 +147,7 @@ const tutorialSteps = [
   {
     eyebrow: "RISK & INSURANCE",
     title: "Expensive things attract expensive problems.",
-    body: "Insured possessions cost premiums but survive accidents and burglaries. Uninsured items can disappear completely. No refunds from fate.",
+    body: "Insured possessions cost premiums but survive accidents and burglaries. Uninsured items can disappear completely. Highly leveraged trades can disappear even faster.",
     icon: Shield,
     accent: "#76d4ff",
   },
@@ -357,12 +362,18 @@ function Landing({
 function Lobby({
   snapshot,
   me,
-  onBegin,
+  onTutorial,
+  onStart,
+  onAddBot,
+  onRemoveBot,
   onLeave,
 }: {
   snapshot: GameSnapshot;
   me: PlayerState;
-  onBegin: () => void;
+  onTutorial: () => void;
+  onStart: () => void;
+  onAddBot: () => void;
+  onRemoveBot: (id: string) => void;
   onLeave: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -390,8 +401,8 @@ function Lobby({
           <span>PRIVATE MATCH</span>
           <h1>Friends in the Fast Lane</h1>
           <p>
-            The market opens after a short optional briefing. Share this invite with up to
-            three friends.
+            Share this invite, complete the optional briefing, add smart bots if needed,
+            then the host decides when the market opens.
           </p>
         </div>
 
@@ -421,9 +432,25 @@ function Lobby({
               <img src={avatars[player.avatar].image} alt="" />
               <div>
                 <strong>{player.name}</strong>
-                <span>{player.id === snapshot.hostId ? "Host" : "Ready to learn"}</span>
+                <span>
+                  {player.isBot
+                    ? "Smart bot · market ready"
+                    : player.id === snapshot.hostId
+                      ? `Host · ${player.ready ? "briefing complete" : "briefing optional"}`
+                      : player.ready
+                        ? "Briefing complete"
+                        : "Joined · briefing optional"}
+                </span>
               </div>
-              <Check size={18} />
+              {isHost && player.isBot ? (
+                <button
+                  className="remove-bot-button"
+                  onClick={() => onRemoveBot(player.id)}
+                  aria-label={`Remove ${player.name}`}
+                >
+                  <X size={16} />
+                </button>
+              ) : player.ready || player.isBot ? <Check size={18} /> : <Users size={18} />}
             </div>
           ))}
           {Array.from({ length: Math.max(0, 4 - players.length) }, (_, index) => (
@@ -434,69 +461,38 @@ function Lobby({
           ))}
         </div>
 
-        {isHost ? (
-          <button className="primary-button lobby-start" onClick={onBegin}>
-            <Play size={18} /> Begin pre-game briefing
+        <div className="lobby-actions">
+          <button className="secondary-button" onClick={onTutorial}>
+            <Info size={18} /> {me.ready ? "Review briefing" : "Take pre-game briefing"}
           </button>
-        ) : (
-          <div className="waiting-message"><LoaderCircle className="spin" size={17} /> Waiting for the host to begin</div>
-        )}
+          {isHost && players.length < 4 && (
+            <button className="secondary-button" onClick={onAddBot}>
+              <Plus size={18} /> Add smart bot
+            </button>
+          )}
+          {isHost ? (
+            <button className="primary-button" onClick={onStart}>
+              <Play size={18} /> Start match with {players.length} player{players.length === 1 ? "" : "s"}
+            </button>
+          ) : (
+            <div className="waiting-message">
+              <LoaderCircle className="spin" size={17} /> Waiting for the host to start
+            </div>
+          )}
+        </div>
       </section>
     </main>
   );
 }
 
 function Tutorial({
-  snapshot,
-  me,
-  onReady,
-  onStart,
+  onComplete,
 }: {
-  snapshot: GameSnapshot;
-  me: PlayerState;
-  onReady: () => void;
-  onStart: () => void;
+  onComplete: () => void;
 }) {
   const [step, setStep] = useState(0);
   const content = tutorialSteps[step];
   const Icon = content.icon;
-  const allReady = Object.values(snapshot.players).every((player) => player.ready);
-  const isHost = me.id === snapshot.hostId;
-
-  if (me.ready) {
-    return (
-      <main className="briefing-wait">
-        <img className="briefing-city" src="/assets/city-board.png" alt="" />
-        <div className="briefing-shade" />
-        <section className="ready-card glass-panel">
-          <span className="ready-icon"><Check size={30} /></span>
-          <small>BRIEFING COMPLETE</small>
-          <h1>You know enough to be dangerous.</h1>
-          <p>
-            {isHost
-              ? allReady
-                ? "Everyone is ready. Open the market when you are."
-                : "You can wait for everyone or start the match now."
-              : "Waiting for the host to open the market."}
-          </p>
-          <div className="ready-list">
-            {Object.values(snapshot.players).map((player) => (
-              <div key={player.id} className={player.ready ? "ready" : ""}>
-                <img src={avatars[player.avatar].image} alt="" />
-                <span>{player.name}</span>
-                {player.ready ? <Check size={15} /> : <LoaderCircle className="spin" size={15} />}
-              </div>
-            ))}
-          </div>
-          {isHost && (
-            <button className="primary-button" onClick={onStart}>
-              <Play size={18} /> {allReady ? "Open the market" : "Start anyway"}
-            </button>
-          )}
-        </section>
-      </main>
-    );
-  }
 
   return (
     <main className="tutorial-screen">
@@ -511,7 +507,7 @@ function Tutorial({
         </div>
       </section>
       <section className="tutorial-copy">
-        <button className="skip-button" onClick={onReady}>Skip tutorial</button>
+        <button className="skip-button" onClick={onComplete}>Skip and return to lobby</button>
         <div className="tutorial-progress">
           {tutorialSteps.map((_, index) => <span key={index} className={index <= step ? "active" : ""} />)}
         </div>
@@ -533,9 +529,9 @@ function Tutorial({
           </button>
           <button
             className="primary-button"
-            onClick={() => step === tutorialSteps.length - 1 ? onReady() : setStep((value) => value + 1)}
+            onClick={() => step === tutorialSteps.length - 1 ? onComplete() : setStep((value) => value + 1)}
           >
-            {step === tutorialSteps.length - 1 ? "I’m ready" : "Next"}
+            {step === tutorialSteps.length - 1 ? "Return to private lobby" : "Next"}
             {step === tutorialSteps.length - 1 ? <Check size={18} /> : <ChevronRight size={18} />}
           </button>
         </div>
@@ -636,14 +632,31 @@ function TradeDesk({
 }: {
   snapshot: GameSnapshot;
   me: PlayerState;
-  onBuy: (symbol: string, amount: number) => void;
+  onBuy: (
+    symbol: string,
+    amount: number,
+    options: {
+      side: PositionSide;
+      leverage: number;
+      stopLossPct: number;
+      takeProfitPct: number;
+      trailingPct: number;
+    },
+  ) => void;
   onSell: (symbol: string) => void;
 }) {
   const [selected, setSelected] = useState(Object.keys(snapshot.markets)[0]);
   const [amount, setAmount] = useState(1000);
+  const [side, setSide] = useState<PositionSide>("long");
+  const [leverage, setLeverage] = useState(10);
+  const [stopLossPct, setStopLossPct] = useState(25);
+  const [takeProfitPct, setTakeProfitPct] = useState(50);
+  const [trailingPct, setTrailingPct] = useState(20);
   const market = snapshot.markets[selected];
   const holding = me.holdings[selected];
   const change = (market.price / market.openingPrice - 1) * 100;
+  const exposure = amount * leverage;
+  const roi = holding ? positionRoiPct(holding, market.price) : 0;
   return (
     <div className="desk-content trade-desk">
       <div className="asset-tabs">
@@ -668,30 +681,110 @@ function TradeDesk({
         <MiniChart market={market} />
       </div>
       <div className="order-card">
+        <div className="side-toggle">
+          <button className={side === "long" ? "active long" : ""} onClick={() => setSide("long")}>
+            <ArrowUpRight size={15} /> LONG
+          </button>
+          <button className={side === "short" ? "active short" : ""} onClick={() => setSide("short")}>
+            <ArrowDownRight size={15} /> SHORT
+          </button>
+        </div>
+        <span className="control-label">Margin to risk</span>
         <div className="amount-buttons">
-          {[1000, 2500, 5000, 10000].map((value) => (
+          {[500, 1000, 2500, 5000].map((value) => (
             <button key={value} className={amount === value ? "active" : ""} onClick={() => setAmount(value)}>
               {money(value, true)}
             </button>
           ))}
         </div>
-        <button className="buy-button" disabled={me.cash < amount} onClick={() => onBuy(selected, amount)}>
-          Buy {selected} for {money(amount)}
+        <span className="control-label">Leverage</span>
+        <div className="leverage-buttons">
+          {[1, 5, 10, 25, 50, 100].map((value) => (
+            <button
+              key={value}
+              className={leverage === value ? "active" : ""}
+              onClick={() => setLeverage(value)}
+            >
+              {value}×
+            </button>
+          ))}
+        </div>
+        <div className="auto-exit-grid">
+          <label>
+            <span>Stop loss</span>
+            <select value={stopLossPct} onChange={(event) => setStopLossPct(Number(event.target.value))}>
+              <option value={0}>Off</option>
+              <option value={10}>−10%</option>
+              <option value={25}>−25%</option>
+              <option value={50}>−50%</option>
+              <option value={75}>−75%</option>
+            </select>
+          </label>
+          <label>
+            <span>Take profit</span>
+            <select value={takeProfitPct} onChange={(event) => setTakeProfitPct(Number(event.target.value))}>
+              <option value={0}>Off</option>
+              <option value={25}>+25%</option>
+              <option value={50}>+50%</option>
+              <option value={100}>+100%</option>
+              <option value={200}>+200%</option>
+            </select>
+          </label>
+          <label>
+            <span>Trailing exit</span>
+            <select value={trailingPct} onChange={(event) => setTrailingPct(Number(event.target.value))}>
+              <option value={0}>Off</option>
+              <option value={10}>10%</option>
+              <option value={20}>20%</option>
+              <option value={30}>30%</option>
+            </select>
+          </label>
+        </div>
+        <div className="exposure-summary">
+          <span>{money(amount)} margin</span>
+          <ArrowRight size={14} />
+          <strong>{money(exposure)} exposure</strong>
+        </div>
+        <button
+          className={`buy-button ${side}`}
+          disabled={me.cash < amount || Boolean(holding)}
+          onClick={() =>
+            onBuy(selected, amount, {
+              side,
+              leverage,
+              stopLossPct,
+              takeProfitPct,
+              trailingPct,
+            })
+          }
+        >
+          {holding
+            ? `Close existing ${selected} position first`
+            : `Open ${side.toUpperCase()} ${selected} at ${leverage}×`}
         </button>
+        <p className="risk-note">
+          Leverage multiplies gains and losses. At 100×, a move near 1% against you can liquidate the margin.
+        </p>
       </div>
       <div className="position-card">
         <div>
           <small>YOUR POSITION</small>
           {holding ? (
             <>
-              <strong>{money(holding.shares * market.price)}</strong>
-              <span className={holdingProfit(holding, market.price) >= 0 ? "positive-text" : "negative-text"}>
-                {holdingProfit(holding, market.price) >= 0 ? "+" : "−"}{money(Math.abs(holdingProfit(holding, market.price)))} profit
+              <strong>
+                {holding.side.toUpperCase()} {holding.leverage}× · {money(positionEquity(holding, market.price))}
+              </strong>
+              <span className={roi >= 0 ? "positive-text" : "negative-text"}>
+                {roi >= 0 ? "+" : "−"}{Math.abs(roi).toFixed(1)}% · {holdingProfit(holding, market.price) >= 0 ? "+" : "−"}
+                {money(Math.abs(holdingProfit(holding, market.price)))}
               </span>
+              <em>
+                SL {holding.stopLossPct ? `−${holding.stopLossPct}%` : "off"} · TP {holding.takeProfitPct ? `+${holding.takeProfitPct}%` : "off"} · Trail {holding.trailingPct ? `${holding.trailingPct}%` : "off"}
+              </em>
             </>
           ) : <p>No position in {selected}.</p>}
         </div>
-        {holding && <button className="sell-button" onClick={() => onSell(selected)}>Sell all</button>}
+        {holding && <button className="sell-button" onClick={() => onSell(selected)}>Close now</button>}
       </div>
     </div>
   );
@@ -835,7 +928,17 @@ function GameBoard({
   const remaining = (snapshot.endsAt ?? Date.now()) - Date.now();
   const worth = netWorth(me, snapshot.markets);
 
-  const buy = (symbol: string, amount: number) => onAction((game) => { buyStock(game, me.id, symbol, amount); });
+  const buy = (
+    symbol: string,
+    amount: number,
+    options: {
+      side: PositionSide;
+      leverage: number;
+      stopLossPct: number;
+      takeProfitPct: number;
+      trailingPct: number;
+    },
+  ) => onAction((game) => { buyStock(game, me.id, symbol, amount, options); });
   const sell = (symbol: string) => onAction((game) => { sellStock(game, me.id, symbol); });
   const move = (homeId: string) => onAction((game) => { moveHome(game, me.id, homeId); });
   const purchaseAsset = (id: string, insured: boolean) => onAction((game) => { buyAsset(game, me.id, id, insured); });
@@ -990,7 +1093,7 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
         <span><HelpCircle size={20} /> QUICK RULES</span>
         <h2>How to win the Fast Lane</h2>
         <div className="help-grid">
-          <article><TrendingUp size={22} /><strong>Trade stocks</strong><p>Buy fixed cash amounts and sell whole positions. Market prices are shared live.</p></article>
+          <article><TrendingUp size={22} /><strong>Trade with leverage</strong><p>Go long or short at 1×–100×. Stop-loss, take-profit and trailing exits can close positions automatically.</p></article>
           <article><Home size={22} /><strong>Upgrade your home</strong><p>Better housing raises happiness but charges larger recurring bills.</p></article>
           <article><Car size={22} /><strong>Own valuables</strong><p>Cars and watches change value, add happiness and can be sold before time expires.</p></article>
           <article><Shield size={22} /><strong>Manage insurance</strong><p>Coverage costs premiums. Uninsured possessions can be lost to accidents or burglary.</p></article>
@@ -1012,6 +1115,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [helpOpen, setHelpOpen] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
   const gameCode = persisted?.snapshot.code ?? getInviteCode();
   const tickBusy = useRef(false);
 
@@ -1100,6 +1204,7 @@ function App() {
     setPersisted(null);
     setError("");
     setHelpOpen(false);
+    setShowTutorial(false);
     updateUrl();
   };
 
@@ -1135,26 +1240,30 @@ function App() {
     );
   }
 
-  if (snapshot.status === "lobby") {
+  if (showTutorial && (snapshot.status === "lobby" || snapshot.status === "briefing")) {
+    return (
+      <Tutorial
+        onComplete={() => {
+          void commit((game) => {
+            if (game.status === "briefing") game.status = "lobby";
+            const player = game.players[identity];
+            if (player) player.ready = true;
+          });
+          setShowTutorial(false);
+        }}
+      />
+    );
+  }
+
+  if (snapshot.status === "lobby" || snapshot.status === "briefing") {
     return (
       <Lobby
         snapshot={snapshot}
         me={me}
         onLeave={leave}
-        onBegin={() => void commit((game) => {
-          game.status = "briefing";
-          Object.values(game.players).forEach((player) => { player.ready = false; });
-        })}
-      />
-    );
-  }
-
-  if (snapshot.status === "briefing") {
-    return (
-      <Tutorial
-        snapshot={snapshot}
-        me={me}
-        onReady={() => void commit((game) => { game.players[identity].ready = true; })}
+        onTutorial={() => setShowTutorial(true)}
+        onAddBot={() => void commit((game) => { addSmartBot(game); })}
+        onRemoveBot={(id) => void commit((game) => { removeBot(game, id); })}
         onStart={() => void commit((game) => {
           const now = Date.now();
           game.status = "playing";

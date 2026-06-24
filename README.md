@@ -7,8 +7,11 @@ A real-time multiplayer trading-and-life game prototype. A host creates a privat
 - Create a private 15, 30 or 60-minute match
 - Join through an invite URL or room code
 - Optional guided pre-game tutorial
+- Briefing returns each player to the private lobby; only the host starts the match
+- Host-controlled smart bots with distinct trading personalities
 - Shared real-time stock market
-- Simplified fixed-amount stock buying and whole-position selling
+- Simplified long and short trades with leverage from 1× to 100×
+- Stop-loss, take-profit and trailing-exit presets
 - Housing upgrades with happiness and recurring bills
 - Cars and watches that change in value
 - Optional insurance with premiums

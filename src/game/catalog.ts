@@ -114,3 +114,12 @@ export const durationOptions = [
   { value: 30 as const, label: "30 min", note: "Balanced match" },
   { value: 60 as const, label: "1 hour", note: "Full life session" },
 ];
+
+export const botProfiles = [
+  { name: "Bulliam Shakeshares", avatar: "alex" as const, skill: 0.84 },
+  { name: "Chad GPT", avatar: "dante" as const, skill: 0.78 },
+  { name: "Wanda Calls", avatar: "mina" as const, skill: 0.88 },
+  { name: "Debbie Down Jones", avatar: "jules" as const, skill: 0.82 },
+  { name: "Sir Buys-a-Lot", avatar: "alex" as const, skill: 0.76 },
+  { name: "Margin Simpson", avatar: "dante" as const, skill: 0.8 },
+];

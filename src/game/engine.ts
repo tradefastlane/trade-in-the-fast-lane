@@ -2,6 +2,7 @@ import {
   STARTING_CASH,
   assetCatalog,
   avatars,
+  botProfiles,
   homeOptions,
   marketSeeds,
 } from "./catalog";
@@ -13,6 +14,7 @@ import type {
   MarketState,
   OwnedAsset,
   PlayerState,
+  PositionSide,
 } from "./types";
 
 const nowId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -39,6 +41,9 @@ export const makePlayer = (
   latestTrade: "No trades yet",
   bestTrade: "No closed profit yet",
   connectedAt: Date.now(),
+  isBot: false,
+  botSkill: 0,
+  nextBotActionAt: 0,
 });
 
 const makeMarket = (symbol: string, name: string, price: number): MarketState => ({
@@ -97,13 +102,84 @@ export const getHome = (id: string) =>
 export const getCatalogAsset = (id: string) =>
   assetCatalog.find((asset) => asset.id === id);
 
+export const addEvent = (
+  snapshot: GameSnapshot,
+  event: Omit<GameEvent, "id" | "at">,
+) => {
+  snapshot.events = [
+    { ...event, id: nowId(), at: Date.now() },
+    ...snapshot.events,
+  ].slice(0, 16);
+};
+
+export const addSmartBot = (snapshot: GameSnapshot) => {
+  if (Object.keys(snapshot.players).length >= 4) return false;
+  const existingNames = new Set(Object.values(snapshot.players).map((player) => player.name));
+  const profile =
+    botProfiles.find((candidate) => !existingNames.has(candidate.name)) ??
+    botProfiles[Math.floor(Math.random() * botProfiles.length)];
+  const id = `bot-${crypto.randomUUID()}`;
+  const bot = makePlayer(id, profile.name, profile.avatar);
+  bot.isBot = true;
+  bot.ready = true;
+  bot.botSkill = profile.skill;
+  bot.nextBotActionAt = Date.now() + 4_000 + Math.random() * 5_000;
+  snapshot.players[id] = bot;
+  addEvent(snapshot, {
+    type: "system",
+    playerId: id,
+    title: `${bot.name} joined as a smart bot`,
+    detail: "It has read three finance books and misunderstood only one of them.",
+    positive: true,
+  });
+  return true;
+};
+
+export const removeBot = (snapshot: GameSnapshot, playerId: string) => {
+  const player = snapshot.players[playerId];
+  if (!player?.isBot || snapshot.status !== "lobby") return false;
+  delete snapshot.players[playerId];
+  addEvent(snapshot, {
+    type: "system",
+    title: `${player.name} was dismissed`,
+    detail: "The algorithm has been escorted from the lobby.",
+  });
+  return true;
+};
+
+const normalizeLegacyHolding = (holding: Holding) => {
+  holding.side ??= "long";
+  holding.leverage ??= 1;
+  holding.margin ??= holding.shares * holding.averagePrice;
+  holding.stopLossPct ??= 0;
+  holding.takeProfitPct ??= 0;
+  holding.trailingPct ??= 0;
+  holding.bestRoiPct ??= 0;
+};
+
+export const positionProfit = (holding: Holding, price: number) => {
+  normalizeLegacyHolding(holding);
+  const movement = price - holding.averagePrice;
+  return holding.shares * movement * (holding.side === "short" ? -1 : 1);
+};
+
+export const positionEquity = (holding: Holding, price: number) => {
+  normalizeLegacyHolding(holding);
+  return Math.max(0, holding.margin + positionProfit(holding, price));
+};
+
+export const positionRoiPct = (holding: Holding, price: number) => {
+  normalizeLegacyHolding(holding);
+  return holding.margin > 0 ? (positionProfit(holding, price) / holding.margin) * 100 : 0;
+};
+
 export const portfolioValue = (
   player: PlayerState,
   markets: GameSnapshot["markets"],
 ) =>
   Object.entries(player.holdings).reduce(
     (total, [symbol, holding]) =>
-      total + holding.shares * (markets[symbol]?.price ?? 0),
+      total + positionEquity(holding, markets[symbol]?.price ?? holding.averagePrice),
     0,
   );
 
@@ -127,41 +203,52 @@ export const finalScore = (
   markets: GameSnapshot["markets"],
 ) => netWorth(player, markets) * happinessMultiplier(player.happiness);
 
-export const addEvent = (
-  snapshot: GameSnapshot,
-  event: Omit<GameEvent, "id" | "at">,
-) => {
-  snapshot.events = [
-    { ...event, id: nowId(), at: Date.now() },
-    ...snapshot.events,
-  ].slice(0, 16);
-};
-
 export const buyStock = (
   snapshot: GameSnapshot,
   playerId: string,
   symbol: string,
   amount: number,
+  options: {
+    side: PositionSide;
+    leverage: number;
+    stopLossPct: number;
+    takeProfitPct: number;
+    trailingPct: number;
+  },
 ) => {
   const player = snapshot.players[playerId];
   const market = snapshot.markets[symbol];
-  if (!player || !market || amount <= 0 || player.cash < amount) return false;
+  if (
+    !player ||
+    !market ||
+    amount <= 0 ||
+    player.cash < amount ||
+    player.holdings[symbol]
+  ) {
+    return false;
+  }
 
-  const shares = amount / market.price;
-  const existing = player.holdings[symbol] ?? { shares: 0, averagePrice: 0 };
-  const newShares = existing.shares + shares;
-  const averagePrice =
-    (existing.shares * existing.averagePrice + amount) / newShares;
-
+  const leverage = Math.max(1, Math.min(100, Math.round(options.leverage)));
+  const notional = amount * leverage;
   player.cash -= amount;
-  player.holdings[symbol] = { shares: newShares, averagePrice };
-  player.latestTrade = `Bought ${symbol} for ${formatMoney(amount)}`;
-  player.stress = Math.min(100, player.stress + 2);
+  player.holdings[symbol] = {
+    shares: notional / market.price,
+    averagePrice: market.price,
+    side: options.side,
+    leverage,
+    margin: amount,
+    stopLossPct: Math.max(0, options.stopLossPct),
+    takeProfitPct: Math.max(0, options.takeProfitPct),
+    trailingPct: Math.max(0, options.trailingPct),
+    bestRoiPct: 0,
+  };
+  player.latestTrade = `Opened ${options.side.toUpperCase()} ${symbol} at ${leverage}×`;
+  player.stress = Math.min(100, player.stress + Math.min(14, leverage * 0.12));
   addEvent(snapshot, {
     type: "trade",
     playerId,
-    title: `${player.name} bought ${symbol}`,
-    detail: `${formatMoney(amount)} entered the market at ${formatMoney(market.price)}.`,
+    title: `${player.name} opened ${leverage}× ${options.side.toUpperCase()} ${symbol}`,
+    detail: `${formatMoney(amount)} margin controls ${formatMoney(notional)} of exposure.`,
   });
   return true;
 };
@@ -170,31 +257,52 @@ export const sellStock = (
   snapshot: GameSnapshot,
   playerId: string,
   symbol: string,
+  reason = "manual exit",
 ) => {
   const player = snapshot.players[playerId];
   const market = snapshot.markets[symbol];
   const holding = player?.holdings[symbol];
   if (!player || !market || !holding || holding.shares <= 0) return false;
+  closePosition(snapshot, player, symbol, market.price, reason);
+  return true;
+};
 
-  const saleValue = holding.shares * market.price;
-  const cost = holding.shares * holding.averagePrice;
-  const profit = saleValue - cost;
-  player.cash += saleValue;
+const closePosition = (
+  snapshot: GameSnapshot,
+  player: PlayerState,
+  symbol: string,
+  price: number,
+  reason: string,
+) => {
+  const holding = player.holdings[symbol];
+  if (!holding) return;
+  normalizeLegacyHolding(holding);
+  const profit = positionProfit(holding, price);
+  const returned = positionEquity(holding, price);
+  player.cash += returned;
   delete player.holdings[symbol];
-  player.latestTrade = `Sold ${symbol}: ${signedMoney(profit)}`;
-  if (profit > 0 && (!player.bestTrade.includes("+") || parseTradeProfit(player.bestTrade) < profit)) {
+  player.latestTrade = `${holding.side.toUpperCase()} ${symbol} ${signedMoney(profit)}`;
+  if (
+    profit > 0 &&
+    (!player.bestTrade.includes("+") || parseTradeProfit(player.bestTrade) < profit)
+  ) {
     player.bestTrade = `${symbol} ${signedMoney(profit)}`;
   }
-  player.happiness = Math.max(0, Math.min(100, player.happiness + (profit >= 0 ? 2 : -3)));
-  player.stress = Math.max(0, Math.min(100, player.stress + (profit >= 0 ? -4 : 8)));
+  player.happiness = Math.max(
+    0,
+    Math.min(100, player.happiness + (profit >= 0 ? 2 : -4)),
+  );
+  player.stress = Math.max(
+    0,
+    Math.min(100, player.stress + (profit >= 0 ? -5 : 10)),
+  );
   addEvent(snapshot, {
     type: "trade",
-    playerId,
-    title: `${player.name} closed ${symbol}`,
-    detail: `The position settled at ${signedMoney(profit)}.`,
+    playerId: player.id,
+    title: `${player.name}'s ${symbol} position closed`,
+    detail: `${reason}: ${signedMoney(profit)} at ${holding.leverage}× leverage.`,
     positive: profit >= 0,
   });
-  return true;
 };
 
 export const moveHome = (
@@ -304,14 +412,35 @@ export const tickGame = (snapshot: GameSnapshot, at = Date.now()) => {
   const elapsedSeconds = Math.max(1, (at - snapshot.lastMarketTick) / 1000);
 
   Object.values(snapshot.markets).forEach((market, index) => {
-    const volatility = market.symbol === "BTC" ? 0.006 : 0.0035;
-    const drift = Math.sin(at / 45_000 + index) * 0.00025;
+    const volatility = market.symbol === "BTC" ? 0.007 : 0.0045;
+    const drift = Math.sin(at / 45_000 + index) * 0.0003;
     const movement = ((Math.random() - 0.49) * volatility + drift) * Math.sqrt(elapsedSeconds);
     market.price = Math.max(1, market.price * (1 + movement));
     market.history = [...market.history.slice(-39), market.price];
   });
 
   Object.values(snapshot.players).forEach((player) => {
+    Object.entries(player.holdings).forEach(([symbol, holding]) => {
+      const market = snapshot.markets[symbol];
+      if (!market) return;
+      normalizeLegacyHolding(holding);
+      const roi = positionRoiPct(holding, market.price);
+      holding.bestRoiPct = Math.max(holding.bestRoiPct, roi);
+
+      let reason = "";
+      if (roi <= -95) reason = "margin liquidation";
+      else if (holding.stopLossPct > 0 && roi <= -holding.stopLossPct) reason = "stop loss";
+      else if (holding.takeProfitPct > 0 && roi >= holding.takeProfitPct) reason = "take profit";
+      else if (
+        holding.trailingPct > 0 &&
+        holding.bestRoiPct >= holding.trailingPct &&
+        roi <= holding.bestRoiPct - holding.trailingPct
+      ) {
+        reason = "trailing exit";
+      }
+      if (reason) closePosition(snapshot, player, symbol, market.price, reason);
+    });
+
     player.assets.forEach((owned) => {
       const item = getCatalogAsset(owned.catalogId);
       if (!item) return;
@@ -323,6 +452,10 @@ export const tickGame = (snapshot: GameSnapshot, at = Date.now()) => {
       );
     });
     player.stress = Math.max(0, Math.min(100, player.stress - 0.08 * elapsedSeconds));
+
+    if (player.isBot && at >= player.nextBotActionAt) {
+      runBotAction(snapshot, player, at);
+    }
   });
 
   if (at >= snapshot.nextBillingAt) {
@@ -344,8 +477,7 @@ export const tickGame = (snapshot: GameSnapshot, at = Date.now()) => {
         detail: `${formatMoney(bill)} paid for housing and active insurance.`,
       });
     });
-    snapshot.nextBillingAt =
-      at + snapshot.durationMinutes * 60_000 / 6;
+    snapshot.nextBillingAt = at + snapshot.durationMinutes * 60_000 / 6;
   }
 
   if (at >= snapshot.nextIncidentAt) {
@@ -354,8 +486,67 @@ export const tickGame = (snapshot: GameSnapshot, at = Date.now()) => {
   }
 
   snapshot.lastMarketTick = at;
-
   if (snapshot.endsAt && at >= snapshot.endsAt) finishGame(snapshot);
+};
+
+const marketMomentum = (market: MarketState) => {
+  const lookback = market.history.slice(-7);
+  if (lookback.length < 2) return 0;
+  return (lookback[lookback.length - 1] / lookback[0] - 1) * 100;
+};
+
+const runBotAction = (
+  snapshot: GameSnapshot,
+  player: PlayerState,
+  at: number,
+) => {
+  player.nextBotActionAt = at + 6_000 + Math.random() * 9_000;
+  const openPositions = Object.entries(player.holdings);
+
+  if (openPositions.length) {
+    const closeCandidate = openPositions
+      .map(([symbol, holding]) => ({
+        symbol,
+        roi: positionRoiPct(
+          holding,
+          snapshot.markets[symbol]?.price ?? holding.averagePrice,
+        ),
+        momentum: marketMomentum(snapshot.markets[symbol]),
+        side: holding.side,
+      }))
+      .sort((a, b) => Math.abs(b.roi) - Math.abs(a.roi))[0];
+    const momentumTurned =
+      (closeCandidate.side === "long" && closeCandidate.momentum < -0.08) ||
+      (closeCandidate.side === "short" && closeCandidate.momentum > 0.08);
+    if (
+      closeCandidate.roi > 34 ||
+      closeCandidate.roi < -28 ||
+      (momentumTurned && Math.random() < player.botSkill)
+    ) {
+      sellStock(snapshot, player.id, closeCandidate.symbol, "bot signal");
+      return;
+    }
+  }
+
+  if (openPositions.length >= 2 || player.cash < 900) return;
+  const candidates = Object.values(snapshot.markets)
+    .filter((market) => !player.holdings[market.symbol])
+    .map((market) => ({ market, momentum: marketMomentum(market) }))
+    .sort((a, b) => Math.abs(b.momentum) - Math.abs(a.momentum));
+  const choice = candidates[0];
+  if (!choice) return;
+
+  const side: PositionSide = choice.momentum >= 0 ? "long" : "short";
+  const confidence = Math.min(1.4, Math.abs(choice.momentum) * 3 + player.botSkill);
+  const leverage = confidence > 1.15 ? 25 : confidence > 0.95 ? 10 : 5;
+  const margin = Math.min(player.cash * (0.1 + player.botSkill * 0.08), 4_500);
+  buyStock(snapshot, player.id, choice.market.symbol, margin, {
+    side,
+    leverage,
+    stopLossPct: 28,
+    takeProfitPct: 65,
+    trailingPct: 18,
+  });
 };
 
 export const finishGame = (snapshot: GameSnapshot) => {
@@ -423,4 +614,4 @@ export const signedMoney = (value: number) =>
   `${value >= 0 ? "+" : "−"}${formatMoney(Math.abs(value))}`;
 
 export const holdingProfit = (holding: Holding, price: number) =>
-  holding.shares * (price - holding.averagePrice);
+  positionProfit(holding, price);
