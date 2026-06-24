@@ -6,17 +6,35 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | und
 const READ_RETRY_DELAYS = [120, 300];
 const UPDATE_ATTEMPTS = 6;
 const REFRESH_SESSION_WITHIN_MS = 15 * 1000;
+const AUTH_RETRY_DELAY_MS = 2 * 60 * 1000;
 
 export const hasSupabase = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 let mutationQueue: Promise<void> = Promise.resolve();
 let identityRequest: Promise<string> | null = null;
+let cachedIdentity = "";
+let cachedExpiresAt = 0;
+let authRetryAt = 0;
+
+function migrateAuthStorage() {
+  for (let index = 0; index < window.sessionStorage.length; index += 1) {
+    const key = window.sessionStorage.key(index);
+    if (!key?.startsWith("sb-") || !key.endsWith("-auth-token")) continue;
+    if (!window.localStorage.getItem(key)) {
+      const value = window.sessionStorage.getItem(key);
+      if (value) window.localStorage.setItem(key, value);
+    }
+  }
+}
+
+if (hasSupabase) migrateAuthStorage();
 
 const supabase: SupabaseClient | null = hasSupabase
   ? createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        storage: window.sessionStorage,
+        detectSessionInUrl: false,
+        storage: window.localStorage,
       },
     })
   : null;
@@ -34,6 +52,10 @@ const wait = (milliseconds: number) =>
   new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
 
 async function ensureIdentityNow() {
+  if (cachedIdentity && cachedExpiresAt - Date.now() > REFRESH_SESSION_WITHIN_MS) {
+    return cachedIdentity;
+  }
+
   const client = onlineClient();
   const session = await client.auth.getSession();
   if (session.error) throw session.error;
@@ -42,13 +64,34 @@ async function ensureIdentityNow() {
     if (expiresAt && expiresAt - Date.now() <= REFRESH_SESSION_WITHIN_MS) {
       const refreshed = await client.auth.refreshSession(session.data.session);
       if (refreshed.error) throw refreshed.error;
-      if (refreshed.data.user?.id) return refreshed.data.user.id;
+      if (refreshed.data.user?.id) {
+        cachedIdentity = refreshed.data.user.id;
+        cachedExpiresAt = (refreshed.data.session?.expires_at ?? 0) * 1000;
+        return cachedIdentity;
+      }
     }
-    return session.data.session.user.id;
+    cachedIdentity = session.data.session.user.id;
+    cachedExpiresAt = expiresAt;
+    return cachedIdentity;
   }
+
+  if (Date.now() < authRetryAt) {
+    const seconds = Math.max(1, Math.ceil((authRetryAt - Date.now()) / 1000));
+    throw new Error(`Online sign-in is cooling down. Try again in ${seconds} seconds.`);
+  }
+
   const auth = await client.auth.signInAnonymously();
-  if (auth.error) throw auth.error;
-  return auth.data.user!.id;
+  if (auth.error) {
+    authRetryAt = Date.now() + AUTH_RETRY_DELAY_MS;
+    if (auth.error.message.toLowerCase().includes("rate limit")) {
+      throw new Error("Online sign-in was temporarily rate-limited. Wait at least two minutes, then refresh once.");
+    }
+    throw auth.error;
+  }
+  cachedIdentity = auth.data.user!.id;
+  cachedExpiresAt = (auth.data.session?.expires_at ?? 0) * 1000;
+  authRetryAt = 0;
+  return cachedIdentity;
 }
 
 export function ensureIdentity() {

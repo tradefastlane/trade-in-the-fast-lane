@@ -13,10 +13,10 @@ export const avatars: Record<
 };
 
 export const marketSeeds = [
-  { symbol: "NVDA", name: "Nova Dynamics", price: 186.4 },
-  { symbol: "TSLA", name: "Tessara Motors", price: 328.2 },
-  { symbol: "AAPL", name: "Orchard Systems", price: 214.6 },
-  { symbol: "BTC", name: "Bitmark", price: 10_420 },
+  { symbol: "NVDA", name: "NVIDIA", price: 186.4 },
+  { symbol: "TSLA", name: "Tesla", price: 328.2 },
+  { symbol: "AAPL", name: "Apple", price: 214.6 },
+  { symbol: "BTC", name: "Bitcoin / U.S. Dollar", price: 10_420 },
 ];
 
 export const homeOptions: HomeOption[] = [

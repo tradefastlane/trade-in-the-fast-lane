@@ -688,7 +688,7 @@ function TradeDesk({
           ))}
         </datalist>
         <small>
-          Prototype feed: search currently covers enabled game markets. A licensed live-data provider can expand this list.
+          Price source: simulated sandbox. TradingView widgets cannot supply executable game prices.
         </small>
       </label>
       <div className="asset-tabs">
@@ -824,7 +824,7 @@ function TradeDesk({
             })
           }
         >
-          Open another {side.toUpperCase()} {selected} trade at {leverage}×
+          {selectedPositions.length ? "Open another" : "Open"} {side.toUpperCase()} {selected} trade at {leverage}×
         </button>
         <p className="risk-note">
           Leverage multiplies gains and losses. At 100×, a move near 1% against you can liquidate the margin.
@@ -1198,6 +1198,7 @@ function App() {
   const [showTutorial, setShowTutorial] = useState(false);
   const gameCode = persisted?.snapshot.code ?? getInviteCode();
   const tickBusy = useRef(false);
+  const tickRetryAt = useRef(0);
 
   const load = useCallback(async (code: string) => {
     setLoading(true);
@@ -1295,17 +1296,19 @@ function App() {
     const snapshot = persisted?.snapshot;
     if (!snapshot || snapshot.status !== "playing" || snapshot.hostId !== identity) return;
     const interval = window.setInterval(async () => {
-      if (tickBusy.current) return;
+      if (tickBusy.current || Date.now() < tickRetryAt.current) return;
       tickBusy.current = true;
       try {
         const next = await updatePersistedGame(snapshot.code, (game) => tickGame(game));
         setPersisted(next);
+        tickRetryAt.current = 0;
       } catch (cause) {
+        tickRetryAt.current = Date.now() + 30_000;
         console.warn("Market update will retry on the next tick.", cause);
       } finally {
         tickBusy.current = false;
       }
-    }, 2500);
+    }, 5000);
     return () => window.clearInterval(interval);
   }, [identity, persisted?.snapshot.code, persisted?.snapshot.hostId, persisted?.snapshot.status]);
 
