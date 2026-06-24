@@ -1161,6 +1161,7 @@ function App() {
     const snapshot = createGameSnapshot(identity, name, avatar, duration);
     const game = await createPersistedGame(snapshot);
     setPersisted(game);
+    setError("");
     updateUrl(snapshot.code);
   };
 
@@ -1184,6 +1185,7 @@ function App() {
       });
     });
     setPersisted(updated);
+    setError("");
     updateUrl(updated.snapshot.code);
   };
 
@@ -1193,6 +1195,7 @@ function App() {
       try {
         const next = await updatePersistedGame(persisted.snapshot.code, reducer);
         setPersisted(next);
+        setError("");
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "The action could not be saved.");
       }
@@ -1217,6 +1220,8 @@ function App() {
       try {
         const next = await updatePersistedGame(snapshot.code, (game) => tickGame(game));
         setPersisted(next);
+      } catch (cause) {
+        console.warn("Market update will retry on the next tick.", cause);
       } finally {
         tickBusy.current = false;
       }

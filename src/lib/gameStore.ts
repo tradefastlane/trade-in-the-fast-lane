@@ -3,8 +3,13 @@ import type { GameSnapshot, PersistedGame } from "../game/types";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const READ_RETRY_DELAYS = [120, 300];
+const UPDATE_ATTEMPTS = 6;
+const REFRESH_SESSION_WITHIN_MS = 15 * 1000;
 
 export const hasSupabase = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+let mutationQueue: Promise<void> = Promise.resolve();
+let identityRequest: Promise<string> | null = null;
 
 const supabase: SupabaseClient | null = hasSupabase
   ? createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
@@ -25,16 +30,38 @@ function onlineClient() {
   return supabase;
 }
 
-export async function ensureIdentity() {
+const wait = (milliseconds: number) =>
+  new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
+
+async function ensureIdentityNow() {
   const client = onlineClient();
   const session = await client.auth.getSession();
-  if (session.data.session?.user.id) return session.data.session.user.id;
+  if (session.error) throw session.error;
+  if (session.data.session?.user.id) {
+    const expiresAt = (session.data.session.expires_at ?? 0) * 1000;
+    if (expiresAt && expiresAt - Date.now() <= REFRESH_SESSION_WITHIN_MS) {
+      const refreshed = await client.auth.refreshSession(session.data.session);
+      if (refreshed.error) throw refreshed.error;
+      if (refreshed.data.user?.id) return refreshed.data.user.id;
+    }
+    return session.data.session.user.id;
+  }
   const auth = await client.auth.signInAnonymously();
   if (auth.error) throw auth.error;
   return auth.data.user!.id;
 }
 
+export function ensureIdentity() {
+  if (!identityRequest) {
+    identityRequest = ensureIdentityNow().finally(() => {
+      identityRequest = null;
+    });
+  }
+  return identityRequest;
+}
+
 export async function createPersistedGame(snapshot: GameSnapshot) {
+  await ensureIdentity();
   const result = await onlineClient()
     .from("games")
     .insert({
@@ -49,26 +76,46 @@ export async function createPersistedGame(snapshot: GameSnapshot) {
   return result.data as PersistedGame;
 }
 
-export async function loadPersistedGame(code: string): Promise<PersistedGame | null> {
-  const normalized = code.toUpperCase();
+async function readPersistedGame(normalizedCode: string) {
   const result = await onlineClient()
     .from("games")
     .select("snapshot, version")
-    .eq("code", normalized)
+    .eq("code", normalizedCode)
     .maybeSingle();
   if (result.error) throw result.error;
   return (result.data as PersistedGame | null) ?? null;
 }
 
-export async function updatePersistedGame(
+export async function loadPersistedGame(code: string): Promise<PersistedGame | null> {
+  const normalized = code.toUpperCase();
+  await ensureIdentity();
+
+  for (let attempt = 0; attempt <= READ_RETRY_DELAYS.length; attempt += 1) {
+    const persisted = await readPersistedGame(normalized);
+    if (persisted) return persisted;
+    if (attempt < READ_RETRY_DELAYS.length) {
+      await wait(READ_RETRY_DELAYS[attempt]);
+    }
+  }
+
+  return null;
+}
+
+async function updatePersistedGameNow(
   code: string,
   reducer: (snapshot: GameSnapshot) => void,
-) {
+): Promise<PersistedGame> {
   const normalized = code.toUpperCase();
+  let foundGame = false;
+  await ensureIdentity();
 
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const current = await loadPersistedGame(normalized);
-    if (!current) throw new Error("Game not found");
+  for (let attempt = 0; attempt < UPDATE_ATTEMPTS; attempt += 1) {
+    const current = await readPersistedGame(normalized);
+    if (!current) {
+      await wait(100 + attempt * 100);
+      continue;
+    }
+    foundGame = true;
     const snapshot = structuredClone(current.snapshot);
     reducer(snapshot);
 
@@ -81,8 +128,29 @@ export async function updatePersistedGame(
       .maybeSingle();
     if (result.error) throw result.error;
     if (result.data) return result.data as PersistedGame;
+    await wait(40 + attempt * 35 + Math.random() * 60);
   }
-  throw new Error("The game changed too quickly. Please try again.");
+
+  throw new Error(
+    foundGame
+      ? "The room is busy synchronizing. Please try that action again."
+      : "The room could not be synchronized. Refresh the page and try again.",
+  );
+}
+
+export function updatePersistedGame(
+  code: string,
+  reducer: (snapshot: GameSnapshot) => void,
+): Promise<PersistedGame> {
+  const operation = mutationQueue.then(
+    () => updatePersistedGameNow(code, reducer),
+    () => updatePersistedGameNow(code, reducer),
+  );
+  mutationQueue = operation.then(
+    () => undefined,
+    () => undefined,
+  );
+  return operation;
 }
 
 export function subscribeToGame(
