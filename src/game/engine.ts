@@ -46,13 +46,39 @@ export const makePlayer = (
   nextBotActionAt: 0,
 });
 
-const makeMarket = (symbol: string, name: string, price: number): MarketState => ({
+const makeMarket = (
+  symbol: string,
+  name: string,
+  price: number,
+  source: MarketState["source"] = "simulated",
+): MarketState => ({
   symbol,
   name,
   price,
   openingPrice: price,
   history: Array.from({ length: 24 }, (_, index) => price * (0.985 + index * 0.0007)),
+  source,
+  lastUpdatedAt: Date.now(),
 });
+
+export const upsertLiveMarket = (
+  snapshot: GameSnapshot,
+  quote: { symbol: string; name: string; price: number },
+) => {
+  const symbol = quote.symbol.trim().toUpperCase();
+  if (!symbol || !Number.isFinite(quote.price) || quote.price <= 0) return false;
+  const existing = snapshot.markets[symbol];
+  if (existing) {
+    existing.name = quote.name || existing.name;
+    existing.price = quote.price;
+    existing.history = [...existing.history.slice(-39), quote.price];
+    existing.source = "alpaca";
+    existing.lastUpdatedAt = Date.now();
+  } else {
+    snapshot.markets[symbol] = makeMarket(symbol, quote.name || symbol, quote.price, "alpaca");
+  }
+  return true;
+};
 
 export const createGameSnapshot = (
   hostId: string,
@@ -424,16 +450,31 @@ export const sellAsset = (
   return true;
 };
 
-export const tickGame = (snapshot: GameSnapshot, at = Date.now()) => {
+export const tickGame = (
+  snapshot: GameSnapshot,
+  at = Date.now(),
+  livePrices: Record<string, number> = {},
+) => {
   if (snapshot.status !== "playing") return;
   const elapsedSeconds = Math.max(1, (at - snapshot.lastMarketTick) / 1000);
 
   Object.values(snapshot.markets).forEach((market, index) => {
+    const livePrice = Number(livePrices[market.symbol]);
+    if (Number.isFinite(livePrice) && livePrice > 0) {
+      market.price = livePrice;
+      market.history = [...market.history.slice(-39), livePrice];
+      market.source = "alpaca";
+      market.lastUpdatedAt = at;
+      return;
+    }
+    if (market.source === "alpaca") return;
     const volatility = market.symbol === "BTC" ? 0.007 : 0.0045;
     const drift = Math.sin(at / 45_000 + index) * 0.0003;
     const movement = ((Math.random() - 0.49) * volatility + drift) * Math.sqrt(elapsedSeconds);
     market.price = Math.max(1, market.price * (1 + movement));
     market.history = [...market.history.slice(-39), market.price];
+    market.source = "simulated";
+    market.lastUpdatedAt = at;
   });
 
   Object.values(snapshot.players).forEach((player) => {

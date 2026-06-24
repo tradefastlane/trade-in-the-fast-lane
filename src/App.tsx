@@ -74,6 +74,7 @@ import {
   sellAsset,
   sellStock,
   tickGame,
+  upsertLiveMarket,
 } from "./game/engine";
 import type {
   AvatarId,
@@ -92,6 +93,7 @@ import {
   subscribeToGame,
   updatePersistedGame,
 } from "./lib/gameStore";
+import { fetchMarketQuote, fetchMarketQuotes } from "./lib/marketData";
 
 type DeskTab = "trade" | "life" | "assets";
 
@@ -629,6 +631,7 @@ function TradeDesk({
   me,
   onBuy,
   onSell,
+  onAddMarket,
 }: {
   snapshot: GameSnapshot;
   me: PlayerState;
@@ -644,19 +647,23 @@ function TradeDesk({
     },
   ) => void;
   onSell: (positionId: string) => void;
+  onAddMarket: (symbol: string) => Promise<string>;
 }) {
   const [selected, setSelected] = useState(Object.keys(snapshot.markets)[0]);
   const [symbolQuery, setSymbolQuery] = useState(Object.keys(snapshot.markets)[0]);
+  const [symbolLoading, setSymbolLoading] = useState(false);
+  const [symbolError, setSymbolError] = useState("");
   const [amount, setAmount] = useState(1000);
   const [side, setSide] = useState<PositionSide>("long");
   const [leverage, setLeverage] = useState(10);
   const [stopLossPct, setStopLossPct] = useState(25);
   const [takeProfitPct, setTakeProfitPct] = useState(50);
   const [trailingPct, setTrailingPct] = useState(20);
-  const market = snapshot.markets[selected];
+  const market = snapshot.markets[selected] ?? Object.values(snapshot.markets)[0];
+  const activeSymbol = market.symbol;
   const maximumAmount = Math.max(1, Math.floor(me.cash));
   const selectedPositions = Object.entries(me.holdings)
-    .filter(([positionId, holding]) => (holding.symbol ?? positionId) === selected)
+    .filter(([positionId, holding]) => (holding.symbol ?? positionId) === activeSymbol)
     .map(([positionId, holding]) => ({ positionId, holding }));
   const change = (market.price / market.openingPrice - 1) * 100;
   const validAmount = Math.max(1, Math.min(maximumAmount, Number(amount) || 1));
@@ -669,27 +676,63 @@ function TradeDesk({
   const chooseSymbol = (value: string) => {
     const normalized = value.trim().toUpperCase();
     setSymbolQuery(normalized);
+    setSymbolError("");
     if (snapshot.markets[normalized]) setSelected(normalized);
+  };
+
+  const loadSymbol = async () => {
+    const normalized = symbolQuery.trim().toUpperCase();
+    if (!normalized) return;
+    if (snapshot.markets[normalized]) {
+      setSelected(normalized);
+      return;
+    }
+    setSymbolLoading(true);
+    setSymbolError("");
+    try {
+      const resolved = await onAddMarket(normalized);
+      setSelected(resolved);
+      setSymbolQuery(resolved);
+    } catch (cause) {
+      setSymbolError(cause instanceof Error ? cause.message : "That market could not be loaded.");
+    } finally {
+      setSymbolLoading(false);
+    }
   };
 
   return (
     <div className="desk-content trade-desk">
       <label className="symbol-search">
         <span>Find a stock or crypto ticker</span>
-        <input
-          list="tradeable-symbols"
-          value={symbolQuery}
-          onChange={(event) => chooseSymbol(event.target.value)}
-          placeholder="Type BTC, AAPL, NVDA…"
-        />
+        <div className="symbol-entry">
+          <input
+            list="tradeable-symbols"
+            value={symbolQuery}
+            onChange={(event) => chooseSymbol(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void loadSymbol();
+              }
+            }}
+            placeholder="Type BTC, AAPL, NVDA…"
+          />
+          <button type="button" disabled={symbolLoading} onClick={() => void loadSymbol()}>
+            {symbolLoading ? <LoaderCircle className="spin" size={16} /> : <RefreshCcw size={16} />}
+            Load
+          </button>
+        </div>
         <datalist id="tradeable-symbols">
           {Object.values(snapshot.markets).map((item) => (
             <option key={item.symbol} value={item.symbol}>{item.name}</option>
           ))}
         </datalist>
         <small>
-          Price source: simulated sandbox. TradingView widgets cannot supply executable game prices.
+          {market.source === "alpaca"
+            ? "LIVE PRICE · Alpaca Market Data"
+            : "SIMULATED PRICE · waiting for the live Alpaca feed"}
         </small>
+        {symbolError && <em className="symbol-error">{symbolError}</em>}
       </label>
       <div className="asset-tabs">
         {Object.values(snapshot.markets).map((item) => (
@@ -815,7 +858,7 @@ function TradeDesk({
           className={`buy-button ${side}`}
           disabled={me.cash < validAmount || validAmount <= 0}
           onClick={() =>
-            onBuy(selected, validAmount, {
+            onBuy(activeSymbol, validAmount, {
               side,
               leverage,
               stopLossPct,
@@ -824,7 +867,7 @@ function TradeDesk({
             })
           }
         >
-          {selectedPositions.length ? "Open another" : "Open"} {side.toUpperCase()} {selected} trade at {leverage}×
+          {selectedPositions.length ? "Open another" : "Open"} {side.toUpperCase()} {activeSymbol} trade at {leverage}×
         </button>
         <p className="risk-note">
           Leverage multiplies gains and losses. At 100×, a move near 1% against you can liquidate the margin.
@@ -832,7 +875,7 @@ function TradeDesk({
       </div>
       <div className="positions-list">
         <div className="positions-heading">
-          <strong>OPEN {selected} TRADES</strong>
+          <strong>OPEN {activeSymbol} TRADES</strong>
           <span>{selectedPositions.length}</span>
         </div>
         {selectedPositions.length ? selectedPositions.map(({ positionId, holding }, index) => {
@@ -862,7 +905,7 @@ function TradeDesk({
           );
         }) : (
           <div className="position-card empty-position">
-            <p>No open {selected} trades.</p>
+            <p>No open {activeSymbol} trades.</p>
           </div>
         )}
       </div>
@@ -990,7 +1033,7 @@ function GameBoard({
 }: {
   snapshot: GameSnapshot;
   me: PlayerState;
-  onAction: (reducer: (game: GameSnapshot) => void) => void;
+  onAction: (reducer: (game: GameSnapshot) => void) => Promise<void>;
   onHelp: () => void;
 }) {
   const [deskTab, setDeskTab] = useState<DeskTab>("trade");
@@ -1020,6 +1063,13 @@ function GameBoard({
     },
   ) => onAction((game) => { buyStock(game, me.id, symbol, amount, options); });
   const sell = (positionId: string) => onAction((game) => { sellStock(game, me.id, positionId); });
+  const addMarket = async (symbol: string) => {
+    const quote = await fetchMarketQuote(symbol);
+    await onAction((game) => {
+      upsertLiveMarket(game, quote);
+    });
+    return quote.symbol;
+  };
   const move = (homeId: string) => onAction((game) => { moveHome(game, me.id, homeId); });
   const purchaseAsset = (id: string, insured: boolean) => onAction((game) => { buyAsset(game, me.id, id, insured); });
   const insure = (instanceId: string) => onAction((game) => { insureAsset(game, me.id, instanceId); });
@@ -1104,7 +1154,15 @@ function GameBoard({
             <button className={deskTab === "life" ? "active" : ""} onClick={() => setDeskTab("life")}><House size={15} /> Home</button>
             <button className={deskTab === "assets" ? "active" : ""} onClick={() => setDeskTab("assets")}><ShoppingBag size={15} /> Assets</button>
           </div>
-          {deskTab === "trade" && <TradeDesk snapshot={snapshot} me={me} onBuy={buy} onSell={sell} />}
+          {deskTab === "trade" && (
+            <TradeDesk
+              snapshot={snapshot}
+              me={me}
+              onBuy={buy}
+              onSell={sell}
+              onAddMarket={addMarket}
+            />
+          )}
           {deskTab === "life" && <LifeDesk snapshot={snapshot} me={me} onMove={move} />}
           {deskTab === "assets" && <AssetDesk me={me} onBuy={purchaseAsset} onInsure={insure} onSell={sellPossession} />}
         </aside>
@@ -1295,11 +1353,24 @@ function App() {
   useEffect(() => {
     const snapshot = persisted?.snapshot;
     if (!snapshot || snapshot.status !== "playing" || snapshot.hostId !== identity) return;
+    const symbols = Object.keys(snapshot.markets);
     const interval = window.setInterval(async () => {
       if (tickBusy.current || Date.now() < tickRetryAt.current) return;
       tickBusy.current = true;
       try {
-        const next = await updatePersistedGame(snapshot.code, (game) => tickGame(game));
+        let livePrices: Record<string, number> = {};
+        try {
+          const quotes = await fetchMarketQuotes(symbols);
+          livePrices = Object.fromEntries(
+            Object.values(quotes).map((quote) => [quote.symbol, quote.price]),
+          );
+        } catch (cause) {
+          console.warn("Live market prices are temporarily unavailable.", cause);
+        }
+        const next = await updatePersistedGame(
+          snapshot.code,
+          (game) => tickGame(game, Date.now(), livePrices),
+        );
         setPersisted(next);
         tickRetryAt.current = 0;
       } catch (cause) {
@@ -1310,7 +1381,13 @@ function App() {
       }
     }, 5000);
     return () => window.clearInterval(interval);
-  }, [identity, persisted?.snapshot.code, persisted?.snapshot.hostId, persisted?.snapshot.status]);
+  }, [
+    identity,
+    persisted?.snapshot.code,
+    persisted?.snapshot.hostId,
+    persisted?.snapshot.status,
+    persisted ? Object.keys(persisted.snapshot.markets).sort().join(",") : "",
+  ]);
 
   const snapshot = persisted?.snapshot;
   const me = snapshot?.players[identity];
@@ -1377,7 +1454,7 @@ function App() {
 
   return (
     <>
-      <GameBoard snapshot={snapshot} me={me} onAction={(reducer) => void commit(reducer)} onHelp={() => setHelpOpen(true)} />
+      <GameBoard snapshot={snapshot} me={me} onAction={commit} onHelp={() => setHelpOpen(true)} />
       {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
       {error && <div className="global-toast"><ShieldAlert size={16} />{error}<button onClick={() => setError("")}><X size={14} /></button></div>}
     </>

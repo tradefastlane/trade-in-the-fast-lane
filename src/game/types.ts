@@ -53,6 +53,8 @@ export type MarketState = {
   price: number;
   openingPrice: number;
   history: number[];
+  source?: "alpaca" | "simulated";
+  lastUpdatedAt?: number;
 };
 
 export type GameEvent = {

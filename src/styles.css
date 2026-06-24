@@ -1595,6 +1595,31 @@ button:disabled {
   font-weight: 700;
 }
 
+.symbol-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+}
+
+.symbol-entry button {
+  display: inline-flex;
+  min-width: 92px;
+  padding: 0 13px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: #06221b;
+  border: 0;
+  border-radius: 8px;
+  background: var(--mint);
+  font-weight: 900;
+}
+
+.symbol-entry button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .symbol-search input {
   width: 100%;
   min-height: 52px;
@@ -1609,6 +1634,12 @@ button:disabled {
 .symbol-search input:focus {
   border-color: var(--mint);
   box-shadow: 0 0 0 3px rgba(104, 229, 196, 0.12);
+}
+
+.symbol-error {
+  color: #ff8f9b;
+  font-style: normal;
+  font-weight: 800;
 }
 
 .asset-tabs {

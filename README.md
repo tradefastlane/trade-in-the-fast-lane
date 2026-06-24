@@ -10,6 +10,8 @@ A real-time multiplayer trading-and-life game prototype. A host creates a privat
 - Briefing returns each player to the private lobby; only the host starts the match
 - Host-controlled smart bots with distinct trading personalities
 - Shared real-time stock market
+- Live Alpaca prices for US equities and supported USD crypto pairs
+- Type a ticker during a match to load it into the shared market
 - Simplified long and short trades with leverage from 1× to 100×
 - Stop-loss, take-profit and trailing-exit presets
 - Housing upgrades with happiness and recurring bills
@@ -58,21 +60,32 @@ The current schema is appropriate for a private prototype. Before a public launc
 
 ## Render deployment
 
-The repository includes `render.yaml`.
+The repository includes `render.yaml` for one Node Web Service that serves both
+the React game and the private Alpaca price proxy.
 
 1. Push the project to GitHub.
-2. In Render, create a new Blueprint from the repository.
-3. Enter these environment variables when Render asks:
+2. In Render, create a new **Web Service** from the repository.
+3. Use:
+   - Build command: `npm ci && npm run build`
+   - Start command: `npm start`
+   - Health check path: `/health`
+4. Enter these environment variables:
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
-4. Deploy.
+   - `APCA_API_KEY_ID`
+   - `APCA_API_SECRET_KEY`
+5. Deploy. Never prefix the Alpaca variables with `VITE_`; that would expose
+   them in the browser bundle.
 
-The Render route rewrite sends invite URLs such as `/?game=ABC123` back to the React app.
+The Node service sends invite URLs such as `/?game=ABC123` back to the React
+app and keeps Alpaca credentials on the server.
 
 ## Project structure
 
 - `src/game/catalog.ts` — homes, collectibles, avatars and market seeds
 - `src/game/engine.ts` — economy, trading, billing, incidents and scoring
 - `src/lib/gameStore.ts` — Supabase realtime persistence with local fallback
+- `src/lib/marketData.ts` — browser client for the private market API
+- `server/index.mjs` — private Alpaca proxy and production frontend server
 - `supabase/migrations/` — database schema and policies
-- `render.yaml` — Render static-site Blueprint
+- `render.yaml` — Render Web Service Blueprint
