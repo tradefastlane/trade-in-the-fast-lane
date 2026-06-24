@@ -643,9 +643,10 @@ function TradeDesk({
       trailingPct: number;
     },
   ) => void;
-  onSell: (symbol: string) => void;
+  onSell: (positionId: string) => void;
 }) {
   const [selected, setSelected] = useState(Object.keys(snapshot.markets)[0]);
+  const [symbolQuery, setSymbolQuery] = useState(Object.keys(snapshot.markets)[0]);
   const [amount, setAmount] = useState(1000);
   const [side, setSide] = useState<PositionSide>("long");
   const [leverage, setLeverage] = useState(10);
@@ -653,15 +654,53 @@ function TradeDesk({
   const [takeProfitPct, setTakeProfitPct] = useState(50);
   const [trailingPct, setTrailingPct] = useState(20);
   const market = snapshot.markets[selected];
-  const holding = me.holdings[selected];
+  const maximumAmount = Math.max(1, Math.floor(me.cash));
+  const selectedPositions = Object.entries(me.holdings)
+    .filter(([positionId, holding]) => (holding.symbol ?? positionId) === selected)
+    .map(([positionId, holding]) => ({ positionId, holding }));
   const change = (market.price / market.openingPrice - 1) * 100;
-  const exposure = amount * leverage;
-  const roi = holding ? positionRoiPct(holding, market.price) : 0;
+  const validAmount = Math.max(1, Math.min(maximumAmount, Number(amount) || 1));
+  const exposure = validAmount * leverage;
+
+  useEffect(() => {
+    setAmount((current) => Math.max(1, Math.min(maximumAmount, current)));
+  }, [maximumAmount]);
+
+  const chooseSymbol = (value: string) => {
+    const normalized = value.trim().toUpperCase();
+    setSymbolQuery(normalized);
+    if (snapshot.markets[normalized]) setSelected(normalized);
+  };
+
   return (
     <div className="desk-content trade-desk">
+      <label className="symbol-search">
+        <span>Find a stock or crypto ticker</span>
+        <input
+          list="tradeable-symbols"
+          value={symbolQuery}
+          onChange={(event) => chooseSymbol(event.target.value)}
+          placeholder="Type BTC, AAPL, NVDA…"
+        />
+        <datalist id="tradeable-symbols">
+          {Object.values(snapshot.markets).map((item) => (
+            <option key={item.symbol} value={item.symbol}>{item.name}</option>
+          ))}
+        </datalist>
+        <small>
+          Prototype feed: search currently covers enabled game markets. A licensed live-data provider can expand this list.
+        </small>
+      </label>
       <div className="asset-tabs">
         {Object.values(snapshot.markets).map((item) => (
-          <button className={selected === item.symbol ? "active" : ""} key={item.symbol} onClick={() => setSelected(item.symbol)}>
+          <button
+            className={selected === item.symbol ? "active" : ""}
+            key={item.symbol}
+            onClick={() => {
+              setSelected(item.symbol);
+              setSymbolQuery(item.symbol);
+            }}
+          >
             <strong>{item.symbol}</strong>
             <span className={item.price >= item.openingPrice ? "positive-text" : "negative-text"}>
               {((item.price / item.openingPrice - 1) * 100).toFixed(2)}%
@@ -690,12 +729,39 @@ function TradeDesk({
           </button>
         </div>
         <span className="control-label">Margin to risk</span>
+        <div className="amount-editor">
+          <input
+            aria-label="Trade amount slider"
+            type="range"
+            min={1}
+            max={maximumAmount}
+            step={1}
+            value={validAmount}
+            onChange={(event) => setAmount(Number(event.target.value))}
+          />
+          <label>
+            <span>$</span>
+            <input
+              aria-label="Trade amount"
+              type="number"
+              min={1}
+              max={maximumAmount}
+              step={1}
+              value={amount}
+              onChange={(event) => setAmount(Number(event.target.value))}
+              onBlur={() => setAmount(validAmount)}
+            />
+          </label>
+        </div>
         <div className="amount-buttons">
-          {[500, 1000, 2500, 5000].map((value) => (
-            <button key={value} className={amount === value ? "active" : ""} onClick={() => setAmount(value)}>
-              {money(value, true)}
-            </button>
-          ))}
+          {[0.1, 0.25, 0.5, 1].map((portion) => {
+            const value = Math.max(1, Math.floor(me.cash * portion));
+            return (
+              <button key={portion} onClick={() => setAmount(value)}>
+                {portion === 1 ? "All cash" : `${portion * 100}%`}
+              </button>
+            );
+          })}
         </div>
         <span className="control-label">Leverage</span>
         <div className="leverage-buttons">
@@ -741,15 +807,15 @@ function TradeDesk({
           </label>
         </div>
         <div className="exposure-summary">
-          <span>{money(amount)} margin</span>
+          <span>{money(validAmount)} margin</span>
           <ArrowRight size={14} />
           <strong>{money(exposure)} exposure</strong>
         </div>
         <button
           className={`buy-button ${side}`}
-          disabled={me.cash < amount || Boolean(holding)}
+          disabled={me.cash < validAmount || validAmount <= 0}
           onClick={() =>
-            onBuy(selected, amount, {
+            onBuy(selected, validAmount, {
               side,
               leverage,
               stopLossPct,
@@ -758,33 +824,47 @@ function TradeDesk({
             })
           }
         >
-          {holding
-            ? `Close existing ${selected} position first`
-            : `Open ${side.toUpperCase()} ${selected} at ${leverage}×`}
+          Open another {side.toUpperCase()} {selected} trade at {leverage}×
         </button>
         <p className="risk-note">
           Leverage multiplies gains and losses. At 100×, a move near 1% against you can liquidate the margin.
         </p>
       </div>
-      <div className="position-card">
-        <div>
-          <small>YOUR POSITION</small>
-          {holding ? (
-            <>
-              <strong>
-                {holding.side.toUpperCase()} {holding.leverage}× · {money(positionEquity(holding, market.price))}
-              </strong>
-              <span className={roi >= 0 ? "positive-text" : "negative-text"}>
-                {roi >= 0 ? "+" : "−"}{Math.abs(roi).toFixed(1)}% · {holdingProfit(holding, market.price) >= 0 ? "+" : "−"}
-                {money(Math.abs(holdingProfit(holding, market.price)))}
-              </span>
-              <em>
-                SL {holding.stopLossPct ? `−${holding.stopLossPct}%` : "off"} · TP {holding.takeProfitPct ? `+${holding.takeProfitPct}%` : "off"} · Trail {holding.trailingPct ? `${holding.trailingPct}%` : "off"}
-              </em>
-            </>
-          ) : <p>No position in {selected}.</p>}
+      <div className="positions-list">
+        <div className="positions-heading">
+          <strong>OPEN {selected} TRADES</strong>
+          <span>{selectedPositions.length}</span>
         </div>
-        {holding && <button className="sell-button" onClick={() => onSell(selected)}>Close now</button>}
+        {selectedPositions.length ? selectedPositions.map(({ positionId, holding }, index) => {
+          const roi = positionRoiPct(holding, market.price);
+          const profit = holdingProfit(holding, market.price);
+          const liquidationRisk = roi <= -70;
+          return (
+            <div
+              className={`position-card ${liquidationRisk ? "liquidation-warning" : ""}`}
+              key={positionId}
+            >
+              <div>
+                <small>TRADE #{index + 1} · {liquidationRisk ? "LIQUIDATION RISK" : "OPEN"}</small>
+                <strong>
+                  {holding.side.toUpperCase()} {holding.leverage}× · {money(positionEquity(holding, market.price))}
+                </strong>
+                <span className={roi >= 0 ? "positive-text" : "negative-text"}>
+                  {roi >= 0 ? "+" : "−"}{Math.abs(roi).toFixed(1)}% · {profit >= 0 ? "+" : "−"}
+                  {money(Math.abs(profit))}
+                </span>
+                <em>
+                  Entry {money(holding.averagePrice)} · SL {holding.stopLossPct ? `−${holding.stopLossPct}%` : "off"} · TP {holding.takeProfitPct ? `+${holding.takeProfitPct}%` : "off"} · Trail {holding.trailingPct ? `${holding.trailingPct}%` : "off"}
+                </em>
+              </div>
+              <button className="sell-button" onClick={() => onSell(positionId)}>Close trade</button>
+            </div>
+          );
+        }) : (
+          <div className="position-card empty-position">
+            <p>No open {selected} trades.</p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -939,7 +1019,7 @@ function GameBoard({
       trailingPct: number;
     },
   ) => onAction((game) => { buyStock(game, me.id, symbol, amount, options); });
-  const sell = (symbol: string) => onAction((game) => { sellStock(game, me.id, symbol); });
+  const sell = (positionId: string) => onAction((game) => { sellStock(game, me.id, positionId); });
   const move = (homeId: string) => onAction((game) => { moveHome(game, me.id, homeId); });
   const purchaseAsset = (id: string, insured: boolean) => onAction((game) => { buyAsset(game, me.id, id, insured); });
   const insure = (instanceId: string) => onAction((game) => { insureAsset(game, me.id, instanceId); });

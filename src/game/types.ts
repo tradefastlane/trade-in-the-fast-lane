@@ -5,6 +5,9 @@ export type AvatarId = "alex" | "mina" | "dante" | "jules";
 export type PositionSide = "long" | "short";
 
 export type Holding = {
+  id: string;
+  symbol: string;
+  openedAt: number;
   shares: number;
   averagePrice: number;
   side: PositionSide;

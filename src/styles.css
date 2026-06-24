@@ -1101,7 +1101,7 @@ button:disabled {
   min-height: 0;
   padding: 8px;
   gap: 8px;
-  grid-template-columns: 286px minmax(520px, 1fr) 360px;
+  grid-template-columns: 270px minmax(400px, 1fr) 470px;
   grid-template-rows: minmax(0, 1fr) 202px;
 }
 
@@ -1583,6 +1583,34 @@ button:disabled {
   background: rgba(104, 229, 196, 0.2);
 }
 
+.symbol-search {
+  display: grid;
+  margin-bottom: 10px;
+  gap: 7px;
+}
+
+.symbol-search > span,
+.symbol-search > small {
+  color: #91aaa3;
+  font-weight: 700;
+}
+
+.symbol-search input {
+  width: 100%;
+  min-height: 52px;
+  padding: 0 14px;
+  color: #effffb;
+  border: 1px solid rgba(104, 229, 196, 0.32);
+  border-radius: 8px;
+  outline: none;
+  background: rgba(5, 20, 17, 0.9);
+}
+
+.symbol-search input:focus {
+  border-color: var(--mint);
+  box-shadow: 0 0 0 3px rgba(104, 229, 196, 0.12);
+}
+
 .asset-tabs {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1806,6 +1834,38 @@ button:disabled {
   gap: 4px;
 }
 
+.amount-editor {
+  display: grid;
+  align-items: center;
+  grid-template-columns: minmax(120px, 1fr) minmax(150px, 0.65fr);
+  gap: 10px;
+}
+
+.amount-editor > input[type="range"] {
+  width: 100%;
+  accent-color: var(--mint);
+}
+
+.amount-editor > label {
+  display: flex;
+  min-height: 48px;
+  padding: 0 10px;
+  align-items: center;
+  color: var(--mint);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.amount-editor input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  color: white;
+  border: 0;
+  outline: 0;
+  background: transparent;
+}
+
 .amount-buttons button {
   min-height: 28px;
   color: #78908a;
@@ -1846,6 +1906,46 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.positions-list {
+  display: grid;
+  margin-top: 10px;
+  gap: 8px;
+}
+
+.positions-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #9eb4ae;
+}
+
+.positions-heading > span {
+  display: grid;
+  min-width: 34px;
+  min-height: 34px;
+  place-items: center;
+  color: #071710;
+  border-radius: 999px;
+  background: var(--mint);
+  font-weight: 900;
+}
+
+.empty-position {
+  justify-content: center;
+}
+
+.position-card.liquidation-warning {
+  border-color: #ff4f67;
+  background: rgba(92, 7, 22, 0.72);
+  box-shadow: 0 0 0 2px rgba(255, 79, 103, 0.24), 0 0 30px rgba(255, 44, 75, 0.35);
+  animation: liquidation-flash 0.72s ease-in-out infinite;
+}
+
+.position-card.liquidation-warning small,
+.position-card.liquidation-warning strong {
+  color: #fff;
 }
 
 .position-card > div {
@@ -2385,6 +2485,17 @@ button:disabled {
   50% { opacity: 0.48; transform: scale(0.82); }
 }
 
+@keyframes liquidation-flash {
+  0%, 100% {
+    background: rgba(92, 7, 22, 0.6);
+    box-shadow: 0 0 0 2px rgba(255, 79, 103, 0.2), 0 0 22px rgba(255, 44, 75, 0.26);
+  }
+  50% {
+    background: rgba(214, 20, 49, 0.88);
+    box-shadow: 0 0 0 5px rgba(255, 79, 103, 0.38), 0 0 44px rgba(255, 44, 75, 0.72);
+  }
+}
+
 /* Readability floor: no gameplay or onboarding copy is rendered below 12px. */
 .welcome-screen :is(button, input, small, p, em),
 .lobby-screen :is(button, input, small, p, em),
@@ -2443,7 +2554,7 @@ button:disabled {
   }
 
   .game-grid {
-    grid-template-columns: 245px minmax(450px, 1fr) 320px;
+    grid-template-columns: 245px minmax(400px, 1fr) 430px;
   }
 
   .standing-card {
@@ -2714,4 +2825,39 @@ button:disabled {
   .help-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* XL readability mode: the previous smallest 6–7px labels are now at least 21px. */
+.game-shell {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.game-shell :is(button, input, select, small, p, em, span, label) {
+  font-size: 21px !important;
+  line-height: 1.35;
+}
+
+.game-shell :is(.standing-copy > strong, .standing-money strong, .asset-tabs strong,
+  .shop-list strong, .asset-shop strong, .owned-assets strong, .event-list strong,
+  .position-card strong, .life-summary strong, .public-stat strong, .desk-header strong) {
+  font-size: 21px !important;
+  line-height: 1.25;
+}
+
+.game-shell .player-desk {
+  grid-row: 1 / span 2;
+  overflow: hidden;
+}
+
+.game-shell .event-feed {
+  display: none;
+}
+
+.game-shell .desk-content {
+  scrollbar-width: auto;
+}
+
+.game-shell .player-desk :is(button, input:not([type="range"]), select) {
+  min-height: 52px;
 }
