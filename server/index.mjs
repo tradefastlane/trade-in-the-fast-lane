@@ -252,14 +252,36 @@ async function handleApi(request, response, url) {
     }
     try {
       const data = await coingecko("/search", { query });
+      const matches = (data.coins || []).slice(0, 12);
+      const marketRows = matches.length
+        ? await coingecko("/coins/markets", {
+            vs_currency: "usd",
+            ids: matches.map((coin) => coin.id).join(","),
+            order: "market_cap_desc",
+            per_page: "12",
+            page: "1",
+            sparkline: "false",
+          })
+        : [];
+      const marketById = new Map(marketRows.map((coin) => [coin.id, coin]));
       json(response, 200, {
-        coins: (data.coins || []).slice(0, 12).map((coin) => ({
-          id: coin.id,
-          imageUrl: coin.large || coin.thumb || "",
-          marketCapRank: coin.market_cap_rank || null,
-          name: coin.name,
-          symbol: String(coin.symbol || "").toUpperCase(),
-        })),
+        coins: matches
+          .map((coin) => {
+            const market = marketById.get(coin.id);
+            return {
+              change24hPct: market?.price_change_percentage_24h ?? null,
+              id: coin.id,
+              imageUrl: market?.image || coin.large || coin.thumb || "",
+              marketCap: market?.market_cap ?? null,
+              marketCapRank: market?.market_cap_rank || coin.market_cap_rank || null,
+              name: market?.name || coin.name,
+              price: market?.current_price ?? null,
+              symbol: String(market?.symbol || coin.symbol || "").toUpperCase(),
+              volume24h: market?.total_volume ?? null,
+            };
+          })
+          .sort((a, b) => (a.marketCapRank ?? Number.MAX_SAFE_INTEGER) - (b.marketCapRank ?? Number.MAX_SAFE_INTEGER))
+          .slice(0, 3),
       });
     } catch (error) {
       console.error(error);

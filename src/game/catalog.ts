@@ -13,10 +13,9 @@ export const avatars: Record<
 };
 
 export const marketSeeds = [
-  { key: "NVDA", symbol: "NVDA", name: "NVIDIA", price: 186.4, assetClass: "stock" as const, provider: "alpaca" as const, providerId: "NVDA" },
-  { key: "TSLA", symbol: "TSLA", name: "Tesla", price: 328.2, assetClass: "stock" as const, provider: "alpaca" as const, providerId: "TSLA" },
-  { key: "AAPL", symbol: "AAPL", name: "Apple", price: 214.6, assetClass: "stock" as const, provider: "alpaca" as const, providerId: "AAPL" },
   { key: "crypto:bitcoin", symbol: "BTC", name: "Bitcoin", price: 10_420, assetClass: "crypto" as const, provider: "coingecko" as const, providerId: "bitcoin", chain: "native blockchain" },
+  { key: "crypto:ethereum", symbol: "ETH", name: "Ethereum", price: 2_600, assetClass: "crypto" as const, provider: "coingecko" as const, providerId: "ethereum", chain: "ethereum" },
+  { key: "crypto:solana", symbol: "SOL", name: "Solana", price: 145, assetClass: "crypto" as const, provider: "coingecko" as const, providerId: "solana", chain: "solana" },
 ];
 
 export const homeOptions: HomeOption[] = [

@@ -30,7 +30,6 @@ import {
   Play,
   Plus,
   Radio,
-  RefreshCcw,
   Search,
   Shield,
   ShieldAlert,
@@ -97,7 +96,6 @@ import {
 import {
   fetchCryptoCoin,
   fetchMarketQuotes,
-  fetchStockQuote,
   searchCryptoCoins,
   type CryptoCoinDetail,
   type CryptoSearchResult,
@@ -106,6 +104,12 @@ import {
 type DeskTab = "trade" | "life" | "assets";
 
 const money = (value: number, compact = false) => formatMoney(value, compact);
+const marketPrice = (value: number) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumSignificantDigits: 7,
+  }).format(value);
 
 const formatClock = (milliseconds: number) => {
   const seconds = Math.max(0, Math.ceil(milliseconds / 1000));
@@ -639,7 +643,6 @@ function TradeDesk({
   me,
   onBuy,
   onSell,
-  onAddMarket,
   onAddCrypto,
 }: {
   snapshot: GameSnapshot;
@@ -656,11 +659,9 @@ function TradeDesk({
     },
   ) => void;
   onSell: (positionId: string) => void;
-  onAddMarket: (symbol: string) => Promise<string>;
   onAddCrypto: (coin: CryptoCoinDetail) => Promise<string>;
 }) {
   const [selected, setSelected] = useState(Object.keys(snapshot.markets)[0]);
-  const [searchType, setSearchType] = useState<"stock" | "crypto">("stock");
   const [symbolQuery, setSymbolQuery] = useState(Object.values(snapshot.markets)[0]?.symbol ?? "");
   const [symbolLoading, setSymbolLoading] = useState(false);
   const [symbolError, setSymbolError] = useState("");
@@ -691,34 +692,9 @@ function TradeDesk({
     setSymbolQuery(normalized);
     setSymbolError("");
     const existing = Object.entries(snapshot.markets).find(
-      ([, item]) =>
-        item.symbol === normalized &&
-        (searchType === "crypto" ? item.assetClass === "crypto" : item.assetClass !== "crypto"),
+      ([, item]) => item.symbol === normalized && item.assetClass === "crypto",
     );
     if (existing) setSelected(existing[0]);
-  };
-
-  const loadStock = async () => {
-    const normalized = symbolQuery.trim().toUpperCase();
-    if (!normalized) return;
-    const existing = Object.entries(snapshot.markets).find(
-      ([, item]) => item.symbol === normalized && item.assetClass !== "crypto",
-    );
-    if (existing) {
-      setSelected(existing[0]);
-      return;
-    }
-    setSymbolLoading(true);
-    setSymbolError("");
-    try {
-      const resolved = await onAddMarket(normalized);
-      setSelected(resolved);
-      setSymbolQuery(resolved);
-    } catch (cause) {
-      setSymbolError(cause instanceof Error ? cause.message : "That market could not be loaded.");
-    } finally {
-      setSymbolLoading(false);
-    }
   };
 
   const searchCrypto = async () => {
@@ -770,76 +746,51 @@ function TradeDesk({
     }
   };
 
-  const submitSearch = () => {
-    if (searchType === "crypto") void searchCrypto();
-    else void loadStock();
-  };
+  useEffect(() => {
+    const query = symbolQuery.trim();
+    if (query.length < 2 || cryptoCandidate) {
+      if (query.length < 2) setCryptoResults([]);
+      return;
+    }
+    const timer = window.setTimeout(() => void searchCrypto(), 450);
+    return () => window.clearTimeout(timer);
+  }, [symbolQuery, cryptoCandidate]);
 
   return (
     <div className="desk-content trade-desk">
       <section className="symbol-search">
-        <div className="market-kind-toggle">
-          <button
-            className={searchType === "stock" ? "active" : ""}
-            onClick={() => {
-              setSearchType("stock");
-              setCryptoResults([]);
-              setCryptoCandidate(null);
-              setSymbolError("");
-            }}
-          >
-            Stocks
-          </button>
-          <button
-            className={searchType === "crypto" ? "active" : ""}
-            onClick={() => {
-              setSearchType("crypto");
-              setCryptoResults([]);
-              setCryptoCandidate(null);
-              setSymbolError("");
-            }}
-          >
-            Crypto
-          </button>
-        </div>
-        <span>
-          {searchType === "crypto"
-            ? "Search cryptocurrency by name or ticker"
-            : "Find a US stock ticker"}
-        </span>
+        <span>Search cryptocurrency by name or ticker</span>
         <div className="symbol-entry">
           <input
-            list={searchType === "stock" ? "tradeable-symbols" : undefined}
             value={symbolQuery}
             onChange={(event) => chooseSymbol(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
-                submitSearch();
+                void searchCrypto();
               }
             }}
-            placeholder={searchType === "crypto" ? "Search coin name or ticker…" : "Try AAPL, NVDA or TSLA…"}
+            placeholder="Search coin name or ticker…"
           />
-          <button type="button" disabled={symbolLoading} onClick={submitSearch}>
-            {symbolLoading ? <LoaderCircle className="spin" size={16} /> : searchType === "crypto" ? <Search size={16} /> : <RefreshCcw size={16} />}
-            {searchType === "crypto" ? "Search" : "Load"}
+          <button type="button" disabled={symbolLoading} onClick={() => void searchCrypto()}>
+            {symbolLoading ? <LoaderCircle className="spin" size={16} /> : <Search size={16} />}
+            Search
           </button>
         </div>
-        <datalist id="tradeable-symbols">
-          {Object.entries(snapshot.markets).map(([marketKey, item]) => (
-            <option key={marketKey} value={item.symbol}>{item.name}</option>
-          ))}
-        </datalist>
-        {searchType === "crypto" && cryptoResults.length > 0 && !cryptoCandidate && (
+        {cryptoResults.length > 0 && !cryptoCandidate && (
           <div className="crypto-results">
             {cryptoResults.map((coin) => (
               <button key={coin.id} onClick={() => void inspectCrypto(coin)}>
                 <img src={coin.imageUrl} alt="" />
                 <span>
                   <strong>{coin.name}</strong>
-                  <small>{coin.symbol} · CoinGecko ID: {coin.id}</small>
+                  <small>{coin.symbol} · {coin.marketCapRank ? `Rank #${coin.marketCapRank}` : "Unranked"}</small>
                 </span>
-                <em>{coin.marketCapRank ? `Rank #${coin.marketCapRank}` : "Unranked"}</em>
+                <span className="crypto-result-market">
+                  <strong>{coin.price == null ? "Price unavailable" : marketPrice(coin.price)}</strong>
+                  <small>Cap {coin.marketCap == null ? "—" : money(coin.marketCap, true)}</small>
+                  <small>Vol {coin.volume24h == null ? "—" : money(coin.volume24h, true)}</small>
+                </span>
               </button>
             ))}
           </div>
@@ -855,7 +806,7 @@ function TradeDesk({
               <em>{cryptoCandidate.marketCapRank ? `#${cryptoCandidate.marketCapRank}` : "Unranked"}</em>
             </header>
             <div className="crypto-facts">
-              <span><small>Price</small><strong>{money(cryptoCandidate.price)}</strong></span>
+              <span><small>Price</small><strong>{marketPrice(cryptoCandidate.price)}</strong></span>
               <span><small>Market cap</small><strong>{cryptoCandidate.marketCap ? money(cryptoCandidate.marketCap, true) : "Unknown"}</strong></span>
               <span><small>24h volume</small><strong>{cryptoCandidate.volume24h ? money(cryptoCandidate.volume24h, true) : "Unknown"}</strong></span>
               <span>
@@ -917,7 +868,7 @@ function TradeDesk({
       <div className="trade-quote">
         <div>
           <small>{market.name}</small>
-          <strong>{money(market.price)}</strong>
+          <strong>{marketPrice(market.price)}</strong>
           <span className={change >= 0 ? "positive-text" : "negative-text"}>
             {change >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
             {Math.abs(change).toFixed(2)}% this match
@@ -1060,7 +1011,7 @@ function TradeDesk({
                   {money(Math.abs(profit))}
                 </span>
                 <em>
-                  Entry {money(holding.averagePrice)} · SL {holding.stopLossPct ? `−${holding.stopLossPct}%` : "off"} · TP {holding.takeProfitPct ? `+${holding.takeProfitPct}%` : "off"} · Trail {holding.trailingPct ? `${holding.trailingPct}%` : "off"}
+                  Entry {marketPrice(holding.averagePrice)} · SL {holding.stopLossPct ? `−${holding.stopLossPct}%` : "off"} · TP {holding.takeProfitPct ? `+${holding.takeProfitPct}%` : "off"} · Trail {holding.trailingPct ? `${holding.trailingPct}%` : "off"}
                 </em>
               </div>
               <button className="sell-button" onClick={() => onSell(positionId)}>Close trade</button>
@@ -1204,7 +1155,7 @@ function GameBoard({
   const [mobileDesk, setMobileDesk] = useState(false);
   const [, forceClock] = useState(0);
   const selected = snapshot.players[selectedId] ?? me;
-  const primaryMarket = snapshot.markets.NVDA ?? Object.values(snapshot.markets)[0];
+  const primaryMarket = snapshot.markets["crypto:bitcoin"] ?? Object.values(snapshot.markets)[0];
 
   useEffect(() => {
     const timer = window.setInterval(() => forceClock((value) => value + 1), 1000);
@@ -1226,13 +1177,6 @@ function GameBoard({
     },
   ) => onAction((game) => { buyStock(game, me.id, symbol, amount, options); });
   const sell = (positionId: string) => onAction((game) => { sellStock(game, me.id, positionId); });
-  const addMarket = async (symbol: string) => {
-    const quote = await fetchStockQuote(symbol);
-    await onAction((game) => {
-      upsertLiveMarket(game, quote);
-    });
-    return quote.marketKey;
-  };
   const addCrypto = async (coin: CryptoCoinDetail) => {
     await onAction((game) => {
       upsertLiveMarket(game, coin);
@@ -1268,7 +1212,7 @@ function GameBoard({
           <div className="market-overlay glass-panel">
             <div>
               <span>FAST LANE MARKET · {primaryMarket.symbol}</span>
-              <strong>{money(primaryMarket.price)}</strong>
+              <strong>{marketPrice(primaryMarket.price)}</strong>
               <em className={primaryMarket.price >= primaryMarket.openingPrice ? "positive-text" : "negative-text"}>
                 {((primaryMarket.price / primaryMarket.openingPrice - 1) * 100).toFixed(2)}%
               </em>
@@ -1329,7 +1273,6 @@ function GameBoard({
               me={me}
               onBuy={buy}
               onSell={sell}
-              onAddMarket={addMarket}
               onAddCrypto={addCrypto}
             />
           )}

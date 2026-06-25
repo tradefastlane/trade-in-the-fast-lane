@@ -1,11 +1,15 @@
 import type { MarketState } from "../game/types";
 
 export type CryptoSearchResult = {
+  change24hPct: number | null;
   id: string;
   imageUrl: string;
+  marketCap: number | null;
   marketCapRank: number | null;
   name: string;
+  price: number | null;
   symbol: string;
+  volume24h: number | null;
 };
 
 export type CryptoCoinDetail = {
@@ -101,16 +105,6 @@ export async function fetchMarketQuotes(markets: Record<string, MarketState>) {
       quote,
     ]),
   );
-}
-
-export async function fetchStockQuote(symbol: string) {
-  const normalized = symbol.trim().toUpperCase();
-  const payload = await apiJson<QuoteResponse>(
-    `/api/quotes?assets=${encodeURIComponent(`stock:${normalized}`)}`,
-  );
-  const quote = Object.values(payload.quotes ?? {})[0];
-  if (!quote) throw new Error(`No Alpaca stock price was found for ${normalized}.`);
-  return quote;
 }
 
 export async function searchCryptoCoins(query: string) {
