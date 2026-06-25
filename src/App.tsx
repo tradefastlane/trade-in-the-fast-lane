@@ -31,6 +31,7 @@ import {
   Plus,
   Radio,
   RefreshCcw,
+  Search,
   Shield,
   ShieldAlert,
   ShoppingBag,
@@ -93,7 +94,14 @@ import {
   subscribeToGame,
   updatePersistedGame,
 } from "./lib/gameStore";
-import { fetchMarketQuote, fetchMarketQuotes } from "./lib/marketData";
+import {
+  fetchCryptoCoin,
+  fetchMarketQuotes,
+  fetchStockQuote,
+  searchCryptoCoins,
+  type CryptoCoinDetail,
+  type CryptoSearchResult,
+} from "./lib/marketData";
 
 type DeskTab = "trade" | "life" | "assets";
 
@@ -632,6 +640,7 @@ function TradeDesk({
   onBuy,
   onSell,
   onAddMarket,
+  onAddCrypto,
 }: {
   snapshot: GameSnapshot;
   me: PlayerState;
@@ -648,11 +657,15 @@ function TradeDesk({
   ) => void;
   onSell: (positionId: string) => void;
   onAddMarket: (symbol: string) => Promise<string>;
+  onAddCrypto: (coin: CryptoCoinDetail) => Promise<string>;
 }) {
   const [selected, setSelected] = useState(Object.keys(snapshot.markets)[0]);
-  const [symbolQuery, setSymbolQuery] = useState(Object.keys(snapshot.markets)[0]);
+  const [searchType, setSearchType] = useState<"stock" | "crypto">("stock");
+  const [symbolQuery, setSymbolQuery] = useState(Object.values(snapshot.markets)[0]?.symbol ?? "");
   const [symbolLoading, setSymbolLoading] = useState(false);
   const [symbolError, setSymbolError] = useState("");
+  const [cryptoResults, setCryptoResults] = useState<CryptoSearchResult[]>([]);
+  const [cryptoCandidate, setCryptoCandidate] = useState<CryptoCoinDetail | null>(null);
   const [amount, setAmount] = useState(1000);
   const [side, setSide] = useState<PositionSide>("long");
   const [leverage, setLeverage] = useState(10);
@@ -663,7 +676,7 @@ function TradeDesk({
   const activeSymbol = market.symbol;
   const maximumAmount = Math.max(1, Math.floor(me.cash));
   const selectedPositions = Object.entries(me.holdings)
-    .filter(([positionId, holding]) => (holding.symbol ?? positionId) === activeSymbol)
+    .filter(([positionId, holding]) => (holding.symbol ?? positionId) === selected)
     .map(([positionId, holding]) => ({ positionId, holding }));
   const change = (market.price / market.openingPrice - 1) * 100;
   const validAmount = Math.max(1, Math.min(maximumAmount, Number(amount) || 1));
@@ -677,14 +690,22 @@ function TradeDesk({
     const normalized = value.trim().toUpperCase();
     setSymbolQuery(normalized);
     setSymbolError("");
-    if (snapshot.markets[normalized]) setSelected(normalized);
+    const existing = Object.entries(snapshot.markets).find(
+      ([, item]) =>
+        item.symbol === normalized &&
+        (searchType === "crypto" ? item.assetClass === "crypto" : item.assetClass !== "crypto"),
+    );
+    if (existing) setSelected(existing[0]);
   };
 
-  const loadSymbol = async () => {
+  const loadStock = async () => {
     const normalized = symbolQuery.trim().toUpperCase();
     if (!normalized) return;
-    if (snapshot.markets[normalized]) {
-      setSelected(normalized);
+    const existing = Object.entries(snapshot.markets).find(
+      ([, item]) => item.symbol === normalized && item.assetClass !== "crypto",
+    );
+    if (existing) {
+      setSelected(existing[0]);
       return;
     }
     setSymbolLoading(true);
@@ -700,50 +721,192 @@ function TradeDesk({
     }
   };
 
+  const searchCrypto = async () => {
+    const query = symbolQuery.trim();
+    if (query.length < 2) {
+      setSymbolError("Type at least two letters, such as VET or PEPE.");
+      return;
+    }
+    setSymbolLoading(true);
+    setSymbolError("");
+    setCryptoCandidate(null);
+    try {
+      const results = await searchCryptoCoins(query);
+      setCryptoResults(results);
+      if (!results.length) setSymbolError("No matching cryptocurrency was found.");
+    } catch (cause) {
+      setSymbolError(cause instanceof Error ? cause.message : "Crypto search failed.");
+    } finally {
+      setSymbolLoading(false);
+    }
+  };
+
+  const inspectCrypto = async (result: CryptoSearchResult) => {
+    setSymbolLoading(true);
+    setSymbolError("");
+    try {
+      setCryptoCandidate(await fetchCryptoCoin(result.id));
+    } catch (cause) {
+      setSymbolError(cause instanceof Error ? cause.message : "Coin details could not be loaded.");
+    } finally {
+      setSymbolLoading(false);
+    }
+  };
+
+  const addCrypto = async () => {
+    if (!cryptoCandidate) return;
+    setSymbolLoading(true);
+    setSymbolError("");
+    try {
+      const marketKey = await onAddCrypto(cryptoCandidate);
+      setSelected(marketKey);
+      setSymbolQuery(cryptoCandidate.symbol);
+      setCryptoResults([]);
+      setCryptoCandidate(null);
+    } catch (cause) {
+      setSymbolError(cause instanceof Error ? cause.message : "That coin could not be added.");
+    } finally {
+      setSymbolLoading(false);
+    }
+  };
+
+  const submitSearch = () => {
+    if (searchType === "crypto") void searchCrypto();
+    else void loadStock();
+  };
+
   return (
     <div className="desk-content trade-desk">
-      <label className="symbol-search">
-        <span>Find a stock or crypto ticker</span>
+      <section className="symbol-search">
+        <div className="market-kind-toggle">
+          <button
+            className={searchType === "stock" ? "active" : ""}
+            onClick={() => {
+              setSearchType("stock");
+              setCryptoResults([]);
+              setCryptoCandidate(null);
+              setSymbolError("");
+            }}
+          >
+            Stocks
+          </button>
+          <button
+            className={searchType === "crypto" ? "active" : ""}
+            onClick={() => {
+              setSearchType("crypto");
+              setCryptoResults([]);
+              setCryptoCandidate(null);
+              setSymbolError("");
+            }}
+          >
+            Crypto
+          </button>
+        </div>
+        <span>
+          {searchType === "crypto"
+            ? "Search cryptocurrency by name or ticker"
+            : "Find a US stock ticker"}
+        </span>
         <div className="symbol-entry">
           <input
-            list="tradeable-symbols"
+            list={searchType === "stock" ? "tradeable-symbols" : undefined}
             value={symbolQuery}
             onChange={(event) => chooseSymbol(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
-                void loadSymbol();
+                submitSearch();
               }
             }}
-            placeholder="Type BTC, AAPL, NVDA…"
+            placeholder={searchType === "crypto" ? "Try VET, PEPE or VeChain…" : "Try AAPL, NVDA or TSLA…"}
           />
-          <button type="button" disabled={symbolLoading} onClick={() => void loadSymbol()}>
-            {symbolLoading ? <LoaderCircle className="spin" size={16} /> : <RefreshCcw size={16} />}
-            Load
+          <button type="button" disabled={symbolLoading} onClick={submitSearch}>
+            {symbolLoading ? <LoaderCircle className="spin" size={16} /> : searchType === "crypto" ? <Search size={16} /> : <RefreshCcw size={16} />}
+            {searchType === "crypto" ? "Search" : "Load"}
           </button>
         </div>
         <datalist id="tradeable-symbols">
-          {Object.values(snapshot.markets).map((item) => (
-            <option key={item.symbol} value={item.symbol}>{item.name}</option>
+          {Object.entries(snapshot.markets).map(([marketKey, item]) => (
+            <option key={marketKey} value={item.symbol}>{item.name}</option>
           ))}
         </datalist>
+        {searchType === "crypto" && cryptoResults.length > 0 && !cryptoCandidate && (
+          <div className="crypto-results">
+            {cryptoResults.map((coin) => (
+              <button key={coin.id} onClick={() => void inspectCrypto(coin)}>
+                <img src={coin.imageUrl} alt="" />
+                <span>
+                  <strong>{coin.name}</strong>
+                  <small>{coin.symbol} · CoinGecko ID: {coin.id}</small>
+                </span>
+                <em>{coin.marketCapRank ? `Rank #${coin.marketCapRank}` : "Unranked"}</em>
+              </button>
+            ))}
+          </div>
+        )}
+        {cryptoCandidate && (
+          <article className="crypto-confirmation">
+            <header>
+              <img src={cryptoCandidate.imageUrl} alt="" />
+              <div>
+                <strong>{cryptoCandidate.name}</strong>
+                <span>{cryptoCandidate.symbol} · {cryptoCandidate.providerId}</span>
+              </div>
+              <em>{cryptoCandidate.marketCapRank ? `#${cryptoCandidate.marketCapRank}` : "Unranked"}</em>
+            </header>
+            <div className="crypto-facts">
+              <span><small>Price</small><strong>{money(cryptoCandidate.price)}</strong></span>
+              <span><small>Market cap</small><strong>{cryptoCandidate.marketCap ? money(cryptoCandidate.marketCap, true) : "Unknown"}</strong></span>
+              <span><small>24h volume</small><strong>{cryptoCandidate.volume24h ? money(cryptoCandidate.volume24h, true) : "Unknown"}</strong></span>
+              <span>
+                <small>24h change</small>
+                <strong className={(cryptoCandidate.change24hPct ?? 0) >= 0 ? "positive-text" : "negative-text"}>
+                  {cryptoCandidate.change24hPct == null ? "Unknown" : `${cryptoCandidate.change24hPct >= 0 ? "+" : ""}${cryptoCandidate.change24hPct.toFixed(2)}%`}
+                </strong>
+              </span>
+            </div>
+            <div className="crypto-identity">
+              <span><strong>Primary chain</strong>{cryptoCandidate.chain}</span>
+              <span>
+                <strong>Contract</strong>
+                {cryptoCandidate.contractAddress
+                  ? `${cryptoCandidate.contractAddress.slice(0, 10)}…${cryptoCandidate.contractAddress.slice(-8)}`
+                  : "Native coin — no token contract"}
+              </span>
+            </div>
+            {cryptoCandidate.contracts.length > 1 && (
+              <small className="multi-chain-note">
+                Also represented on {cryptoCandidate.contracts.length - 1} other chain{cryptoCandidate.contracts.length === 2 ? "" : "s"}.
+              </small>
+            )}
+            <div className="crypto-confirm-actions">
+              <button onClick={() => setCryptoCandidate(null)}>Back to results</button>
+              <button className="confirm" disabled={symbolLoading} onClick={() => void addCrypto()}>
+                <Check size={16} /> Add this verified coin
+              </button>
+            </div>
+          </article>
+        )}
         <small>
-          {market.source === "alpaca"
-            ? "LIVE PRICE · Alpaca Market Data"
-            : "SIMULATED PRICE · waiting for the live Alpaca feed"}
+          {market.source === "coingecko"
+            ? "LIVE CRYPTO PRICE · CoinGecko identity and market data"
+            : market.source === "alpaca"
+              ? "LIVE STOCK PRICE · Alpaca Market Data"
+              : "SIMULATED PRICE · waiting for the live feed"}
         </small>
         {symbolError && <em className="symbol-error">{symbolError}</em>}
-      </label>
+      </section>
       <div className="asset-tabs">
-        {Object.values(snapshot.markets).map((item) => (
+        {Object.entries(snapshot.markets).map(([marketKey, item]) => (
           <button
-            className={selected === item.symbol ? "active" : ""}
-            key={item.symbol}
+            className={selected === marketKey ? "active" : ""}
+            key={marketKey}
             onClick={() => {
-              setSelected(item.symbol);
+              setSelected(marketKey);
               setSymbolQuery(item.symbol);
             }}
           >
+            {item.imageUrl && <img src={item.imageUrl} alt="" />}
             <strong>{item.symbol}</strong>
             <span className={item.price >= item.openingPrice ? "positive-text" : "negative-text"}>
               {((item.price / item.openingPrice - 1) * 100).toFixed(2)}%
@@ -858,7 +1021,7 @@ function TradeDesk({
           className={`buy-button ${side}`}
           disabled={me.cash < validAmount || validAmount <= 0}
           onClick={() =>
-            onBuy(activeSymbol, validAmount, {
+            onBuy(selected, validAmount, {
               side,
               leverage,
               stopLossPct,
@@ -1064,11 +1227,17 @@ function GameBoard({
   ) => onAction((game) => { buyStock(game, me.id, symbol, amount, options); });
   const sell = (positionId: string) => onAction((game) => { sellStock(game, me.id, positionId); });
   const addMarket = async (symbol: string) => {
-    const quote = await fetchMarketQuote(symbol);
+    const quote = await fetchStockQuote(symbol);
     await onAction((game) => {
       upsertLiveMarket(game, quote);
     });
-    return quote.symbol;
+    return quote.marketKey;
+  };
+  const addCrypto = async (coin: CryptoCoinDetail) => {
+    await onAction((game) => {
+      upsertLiveMarket(game, coin);
+    });
+    return coin.marketKey;
   };
   const move = (homeId: string) => onAction((game) => { moveHome(game, me.id, homeId); });
   const purchaseAsset = (id: string, insured: boolean) => onAction((game) => { buyAsset(game, me.id, id, insured); });
@@ -1161,6 +1330,7 @@ function GameBoard({
               onBuy={buy}
               onSell={sell}
               onAddMarket={addMarket}
+              onAddCrypto={addCrypto}
             />
           )}
           {deskTab === "life" && <LifeDesk snapshot={snapshot} me={me} onMove={move} />}
@@ -1353,23 +1523,34 @@ function App() {
   useEffect(() => {
     const snapshot = persisted?.snapshot;
     if (!snapshot || snapshot.status !== "playing" || snapshot.hostId !== identity) return;
-    const symbols = Object.keys(snapshot.markets);
     const interval = window.setInterval(async () => {
       if (tickBusy.current || Date.now() < tickRetryAt.current) return;
       tickBusy.current = true;
       try {
+        let quotes: Awaited<ReturnType<typeof fetchMarketQuotes>> = {};
         let livePrices: Record<string, number> = {};
         try {
-          const quotes = await fetchMarketQuotes(symbols);
+          quotes = await fetchMarketQuotes(snapshot.markets);
           livePrices = Object.fromEntries(
-            Object.values(quotes).map((quote) => [quote.symbol, quote.price]),
+            Object.entries(quotes).map(([marketKey, quote]) => [marketKey, quote.price]),
           );
         } catch (cause) {
           console.warn("Live market prices are temporarily unavailable.", cause);
         }
         const next = await updatePersistedGame(
           snapshot.code,
-          (game) => tickGame(game, Date.now(), livePrices),
+          (game) => {
+            Object.entries(quotes).forEach(([marketKey, quote]) => {
+              const existing = game.markets[marketKey];
+              if (!existing) return;
+              existing.marketCap = quote.marketCap;
+              existing.volume24h = quote.volume24h;
+              existing.change24hPct = quote.change24hPct;
+              existing.provider = quote.provider;
+              existing.source = quote.provider;
+            });
+            tickGame(game, Date.now(), livePrices);
+          },
         );
         setPersisted(next);
         tickRetryAt.current = 0;

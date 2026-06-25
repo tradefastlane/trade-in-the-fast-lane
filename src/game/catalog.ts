@@ -13,10 +13,10 @@ export const avatars: Record<
 };
 
 export const marketSeeds = [
-  { symbol: "NVDA", name: "NVIDIA", price: 186.4 },
-  { symbol: "TSLA", name: "Tesla", price: 328.2 },
-  { symbol: "AAPL", name: "Apple", price: 214.6 },
-  { symbol: "BTC", name: "Bitcoin / U.S. Dollar", price: 10_420 },
+  { key: "NVDA", symbol: "NVDA", name: "NVIDIA", price: 186.4, assetClass: "stock" as const, provider: "alpaca" as const, providerId: "NVDA" },
+  { key: "TSLA", symbol: "TSLA", name: "Tesla", price: 328.2, assetClass: "stock" as const, provider: "alpaca" as const, providerId: "TSLA" },
+  { key: "AAPL", symbol: "AAPL", name: "Apple", price: 214.6, assetClass: "stock" as const, provider: "alpaca" as const, providerId: "AAPL" },
+  { key: "crypto:bitcoin", symbol: "BTC", name: "Bitcoin", price: 10_420, assetClass: "crypto" as const, provider: "coingecko" as const, providerId: "bitcoin", chain: "native blockchain" },
 ];
 
 export const homeOptions: HomeOption[] = [

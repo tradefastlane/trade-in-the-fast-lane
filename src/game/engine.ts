@@ -51,7 +51,9 @@ const makeMarket = (
   name: string,
   price: number,
   source: MarketState["source"] = "simulated",
+  metadata: Partial<MarketState> = {},
 ): MarketState => ({
+  ...metadata,
   symbol,
   name,
   price,
@@ -63,21 +65,58 @@ const makeMarket = (
 
 export const upsertLiveMarket = (
   snapshot: GameSnapshot,
-  quote: { symbol: string; name: string; price: number },
+  quote: {
+    marketKey?: string;
+    symbol: string;
+    name: string;
+    price: number;
+    assetClass?: MarketState["assetClass"];
+    provider?: MarketState["provider"];
+    providerId?: string;
+    imageUrl?: string;
+    marketCap?: number | null;
+    volume24h?: number | null;
+    change24hPct?: number | null;
+    marketCapRank?: number | null;
+    chain?: string;
+    contractAddress?: string;
+    contracts?: Array<{ chain: string; address: string }>;
+  },
 ) => {
   const symbol = quote.symbol.trim().toUpperCase();
   if (!symbol || !Number.isFinite(quote.price) || quote.price <= 0) return false;
-  const existing = snapshot.markets[symbol];
+  const marketKey = quote.marketKey || symbol;
+  const metadata = {
+    assetClass: quote.assetClass,
+    provider: quote.provider,
+    providerId: quote.providerId,
+    imageUrl: quote.imageUrl,
+    marketCap: quote.marketCap,
+    volume24h: quote.volume24h,
+    change24hPct: quote.change24hPct,
+    marketCapRank: quote.marketCapRank,
+    chain: quote.chain,
+    contractAddress: quote.contractAddress,
+    contracts: quote.contracts,
+  };
+  const existing = snapshot.markets[marketKey];
   if (existing) {
+    Object.assign(existing, metadata);
     existing.name = quote.name || existing.name;
     existing.price = quote.price;
     existing.history = [...existing.history.slice(-39), quote.price];
-    existing.source = "alpaca";
+    existing.source = quote.provider || "alpaca";
     existing.lastUpdatedAt = Date.now();
   } else {
-    snapshot.markets[symbol] = makeMarket(symbol, quote.name || symbol, quote.price, "alpaca");
+    snapshot.markets[marketKey] = makeMarket(
+      symbol,
+      quote.name || symbol,
+      quote.price,
+      quote.provider || "alpaca",
+      metadata,
+    );
   }
-  return true;
+  return marketKey;
 };
 
 export const createGameSnapshot = (
@@ -89,8 +128,13 @@ export const createGameSnapshot = (
   const code = createCode();
   const markets = Object.fromEntries(
     marketSeeds.map((market) => [
-      market.symbol,
-      makeMarket(market.symbol, market.name, market.price),
+      market.key,
+      makeMarket(market.symbol, market.name, market.price, "simulated", {
+        assetClass: market.assetClass,
+        provider: market.provider,
+        providerId: market.providerId,
+        chain: "chain" in market ? market.chain : undefined,
+      }),
     ]),
   );
   return {
@@ -283,12 +327,12 @@ export const buyStock = (
     trailingPct: Math.max(0, options.trailingPct),
     bestRoiPct: 0,
   };
-  player.latestTrade = `Opened ${options.side.toUpperCase()} ${symbol} at ${leverage}×`;
+  player.latestTrade = `Opened ${options.side.toUpperCase()} ${market.symbol} at ${leverage}×`;
   player.stress = Math.min(100, player.stress + Math.min(14, leverage * 0.12));
   addEvent(snapshot, {
     type: "trade",
     playerId,
-    title: `${player.name} opened ${leverage}× ${options.side.toUpperCase()} ${symbol}`,
+    title: `${player.name} opened ${leverage}× ${options.side.toUpperCase()} ${market.symbol}`,
     detail: `${formatMoney(amount)} margin controls ${formatMoney(notional)} of exposure.`,
   });
   return true;
@@ -319,7 +363,8 @@ const closePosition = (
   const holding = player.holdings[positionId];
   if (!holding) return;
   normalizeLegacyHolding(holding, positionId, positionId);
-  const symbol = holding.symbol;
+  const market = snapshot.markets[holding.symbol];
+  const symbol = market?.symbol || holding.symbol;
   const profit = positionProfit(holding, price);
   const returned = positionEquity(holding, price);
   player.cash += returned;
@@ -458,16 +503,18 @@ export const tickGame = (
   if (snapshot.status !== "playing") return;
   const elapsedSeconds = Math.max(1, (at - snapshot.lastMarketTick) / 1000);
 
-  Object.values(snapshot.markets).forEach((market, index) => {
-    const livePrice = Number(livePrices[market.symbol]);
+  Object.entries(snapshot.markets).forEach(([marketKey, market], index) => {
+    const livePrice = Number(livePrices[marketKey]);
     if (Number.isFinite(livePrice) && livePrice > 0) {
       market.price = livePrice;
       market.history = [...market.history.slice(-39), livePrice];
-      market.source = "alpaca";
+      market.source =
+        market.provider ||
+        (market.assetClass === "crypto" ? "coingecko" : "alpaca");
       market.lastUpdatedAt = at;
       return;
     }
-    if (market.source === "alpaca") return;
+    if (market.source === "alpaca" || market.source === "coingecko") return;
     const volatility = market.symbol === "BTC" ? 0.007 : 0.0045;
     const drift = Math.sin(at / 45_000 + index) * 0.0003;
     const movement = ((Math.random() - 0.49) * volatility + drift) * Math.sqrt(elapsedSeconds);
@@ -592,9 +639,9 @@ const runBotAction = (
 
   if (openPositions.length >= 2 || player.cash < 900) return;
   const openSymbols = new Set(openPositions.map(([, holding]) => holding.symbol));
-  const candidates = Object.values(snapshot.markets)
-    .filter((market) => !openSymbols.has(market.symbol))
-    .map((market) => ({ market, momentum: marketMomentum(market) }))
+  const candidates = Object.entries(snapshot.markets)
+    .filter(([marketKey]) => !openSymbols.has(marketKey))
+    .map(([marketKey, market]) => ({ marketKey, market, momentum: marketMomentum(market) }))
     .sort((a, b) => Math.abs(b.momentum) - Math.abs(a.momentum));
   const choice = candidates[0];
   if (!choice) return;
@@ -603,7 +650,7 @@ const runBotAction = (
   const confidence = Math.min(1.4, Math.abs(choice.momentum) * 3 + player.botSkill);
   const leverage = confidence > 1.15 ? 25 : confidence > 0.95 ? 10 : 5;
   const margin = Math.min(player.cash * (0.1 + player.botSkill * 0.08), 4_500);
-  buyStock(snapshot, player.id, choice.market.symbol, margin, {
+  buyStock(snapshot, player.id, choice.marketKey, margin, {
     side,
     leverage,
     stopLossPct: 28,

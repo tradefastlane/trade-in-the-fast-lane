@@ -10,8 +10,10 @@ A real-time multiplayer trading-and-life game prototype. A host creates a privat
 - Briefing returns each player to the private lobby; only the host starts the match
 - Host-controlled smart bots with distinct trading personalities
 - Shared real-time stock market
-- Live Alpaca prices for US equities and supported USD crypto pairs
-- Type a ticker during a match to load it into the shared market
+- Live Alpaca prices for US equities
+- CoinGecko crypto search with logos, rank, market cap, volume, chain and
+  contract verification
+- Search VeChain, Pepe and many other coins by name or ticker
 - Simplified long and short trades with leverage from 1× to 100×
 - Stop-loss, take-profit and trailing-exit presets
 - Housing upgrades with happiness and recurring bills
@@ -74,6 +76,7 @@ the React game and the private Alpaca price proxy.
    - `VITE_SUPABASE_ANON_KEY`
    - `APCA_API_KEY_ID`
    - `APCA_API_SECRET_KEY`
+   - Optional: `COINGECKO_API_KEY` for higher CoinGecko demo limits
 5. Deploy. Never prefix the Alpaca variables with `VITE_`; that would expose
    them in the browser bundle.
 

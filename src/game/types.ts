@@ -53,7 +53,18 @@ export type MarketState = {
   price: number;
   openingPrice: number;
   history: number[];
-  source?: "alpaca" | "simulated";
+  assetClass?: "stock" | "crypto";
+  provider?: "alpaca" | "coingecko" | "simulated";
+  providerId?: string;
+  imageUrl?: string;
+  marketCap?: number | null;
+  volume24h?: number | null;
+  change24hPct?: number | null;
+  marketCapRank?: number | null;
+  chain?: string;
+  contractAddress?: string;
+  contracts?: Array<{ chain: string; address: string }>;
+  source?: "alpaca" | "coingecko" | "simulated";
   lastUpdatedAt?: number;
 };
 
