@@ -8,7 +8,22 @@ const UPDATE_ATTEMPTS = 6;
 const REFRESH_SESSION_WITHIN_MS = 15 * 1000;
 const AUTH_RETRY_DELAY_MS = 2 * 60 * 1000;
 
-export const hasSupabase = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+function isValidSupabaseUrl(value: string | undefined) {
+  if (!value) return false;
+  try {
+    const url = new URL(value.trim());
+    return (
+      (url.protocol === "https:" || url.protocol === "http:") &&
+      url.hostname.endsWith(".supabase.co")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export const hasSupabase = Boolean(
+  isValidSupabaseUrl(SUPABASE_URL) && SUPABASE_ANON_KEY?.trim(),
+);
 let mutationQueue: Promise<void> = Promise.resolve();
 let identityRequest: Promise<string> | null = null;
 let cachedIdentity = "";
