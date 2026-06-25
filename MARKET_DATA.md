@@ -26,5 +26,4 @@ entitlements from a provider or the exchanges themselves.
 
 Players search crypto by name or ticker, inspect a verification card, and then
 explicitly add the selected CoinGecko asset to the shared match. This prevents
-same-ticker tokens such as the many unrelated `PEPE` contracts from being
-silently substituted.
+unrelated assets that share a ticker from being silently substituted.

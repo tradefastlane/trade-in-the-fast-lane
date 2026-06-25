@@ -185,7 +185,7 @@ async function fetchQuotes(requested) {
   const crypto = missing.filter((item) => item.assetClass === "crypto");
 
   const [stockData, cryptoData] = await Promise.all([
-    stocks.length
+    stocks.length && API_KEY && API_SECRET
       ? alpaca("/v2/stocks/trades/latest", {
           feed: "iex",
           symbols: stocks.map((item) => item.providerSymbol).join(","),
@@ -342,11 +342,6 @@ async function handleApi(request, response, url) {
     json(response, 400, { error: "Enter at least one valid market." });
     return true;
   }
-  if (requested.some((item) => item.assetClass === "stock") && (!API_KEY || !API_SECRET)) {
-    json(response, 503, { error: "Alpaca credentials are not configured for stock prices." });
-    return true;
-  }
-
   try {
     const quotes = await fetchQuotes(requested);
     const missing = requested

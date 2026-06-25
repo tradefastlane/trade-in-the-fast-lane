@@ -724,7 +724,7 @@ function TradeDesk({
   const searchCrypto = async () => {
     const query = symbolQuery.trim();
     if (query.length < 2) {
-      setSymbolError("Type at least two letters, such as VET or PEPE.");
+      setSymbolError("Type at least two letters from a coin name or ticker.");
       return;
     }
     setSymbolLoading(true);
@@ -818,7 +818,7 @@ function TradeDesk({
                 submitSearch();
               }
             }}
-            placeholder={searchType === "crypto" ? "Try VET, PEPE or VeChain…" : "Try AAPL, NVDA or TSLA…"}
+            placeholder={searchType === "crypto" ? "Search coin name or ticker…" : "Try AAPL, NVDA or TSLA…"}
           />
           <button type="button" disabled={symbolLoading} onClick={submitSearch}>
             {symbolLoading ? <LoaderCircle className="spin" size={16} /> : searchType === "crypto" ? <Search size={16} /> : <RefreshCcw size={16} />}

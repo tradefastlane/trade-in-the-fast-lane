@@ -13,7 +13,7 @@ A real-time multiplayer trading-and-life game prototype. A host creates a privat
 - Live Alpaca prices for US equities
 - CoinGecko crypto search with logos, rank, market cap, volume, chain and
   contract verification
-- Search VeChain, Pepe and many other coins by name or ticker
+- Search cryptocurrencies by full name or ticker
 - Simplified long and short trades with leverage from 1× to 100×
 - Stop-loss, take-profit and trailing-exit presets
 - Housing upgrades with happiness and recurring bills
