@@ -5,6 +5,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 const READ_RETRY_DELAYS = [120, 300];
 const UPDATE_ATTEMPTS = 6;
+const RATE_LIMIT_RETRY_DELAYS = [750, 1_500, 3_000];
 const REFRESH_SESSION_WITHIN_MS = 15 * 1000;
 const AUTH_RETRY_DELAY_MS = 2 * 60 * 1000;
 
@@ -65,6 +66,16 @@ function onlineClient() {
 
 const wait = (milliseconds: number) =>
   new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
+
+function isRateLimitError(error: { message?: string; code?: string } | null) {
+  if (!error) return false;
+  const message = error.message?.toLowerCase() ?? "";
+  return (
+    message.includes("rate limit") ||
+    message.includes("too many requests") ||
+    error.code === "429"
+  );
+}
 
 async function ensureIdentityNow() {
   if (cachedIdentity && cachedExpiresAt - Date.now() > REFRESH_SESSION_WITHIN_MS) {
@@ -135,13 +146,19 @@ export async function createPersistedGame(snapshot: GameSnapshot) {
 }
 
 async function readPersistedGame(normalizedCode: string) {
-  const result = await onlineClient()
-    .from("games")
-    .select("snapshot, version")
-    .eq("code", normalizedCode)
-    .maybeSingle();
-  if (result.error) throw result.error;
-  return (result.data as PersistedGame | null) ?? null;
+  for (let attempt = 0; attempt <= RATE_LIMIT_RETRY_DELAYS.length; attempt += 1) {
+    const result = await onlineClient()
+      .from("games")
+      .select("snapshot, version")
+      .eq("code", normalizedCode)
+      .maybeSingle();
+    if (!result.error) return (result.data as PersistedGame | null) ?? null;
+    if (!isRateLimitError(result.error) || attempt === RATE_LIMIT_RETRY_DELAYS.length) {
+      throw result.error;
+    }
+    await wait(RATE_LIMIT_RETRY_DELAYS[attempt]);
+  }
+  return null;
 }
 
 export async function loadPersistedGame(code: string): Promise<PersistedGame | null> {
@@ -184,14 +201,22 @@ async function updatePersistedGameNow(
       .eq("version", current.version)
       .select("snapshot, version")
       .maybeSingle();
-    if (result.error) throw result.error;
+    if (result.error) {
+      if (isRateLimitError(result.error)) {
+        const retryDelay =
+          RATE_LIMIT_RETRY_DELAYS[Math.min(attempt, RATE_LIMIT_RETRY_DELAYS.length - 1)];
+        await wait(retryDelay);
+        continue;
+      }
+      throw result.error;
+    }
     if (result.data) return result.data as PersistedGame;
     await wait(40 + attempt * 35 + Math.random() * 60);
   }
 
   throw new Error(
     foundGame
-      ? "The room is busy synchronizing. Please try that action again."
+      ? "The room is temporarily busy. Your action was not charged—please try once more."
       : "The room could not be synchronized. Refresh the page and try again.",
   );
 }

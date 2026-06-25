@@ -666,7 +666,6 @@ function TradeDesk({
   const [symbolLoading, setSymbolLoading] = useState(false);
   const [symbolError, setSymbolError] = useState("");
   const [cryptoResults, setCryptoResults] = useState<CryptoSearchResult[]>([]);
-  const [cryptoCandidate, setCryptoCandidate] = useState<CryptoCoinDetail | null>(null);
   const [amount, setAmount] = useState(1000);
   const [side, setSide] = useState<PositionSide>("long");
   const [leverage, setLeverage] = useState(10);
@@ -705,7 +704,6 @@ function TradeDesk({
     }
     setSymbolLoading(true);
     setSymbolError("");
-    setCryptoCandidate(null);
     try {
       const results = await searchCryptoCoins(query);
       setCryptoResults(results);
@@ -721,26 +719,13 @@ function TradeDesk({
     setSymbolLoading(true);
     setSymbolError("");
     try {
-      setCryptoCandidate(await fetchCryptoCoin(result.id));
-    } catch (cause) {
-      setSymbolError(cause instanceof Error ? cause.message : "Coin details could not be loaded.");
-    } finally {
-      setSymbolLoading(false);
-    }
-  };
-
-  const addCrypto = async () => {
-    if (!cryptoCandidate) return;
-    setSymbolLoading(true);
-    setSymbolError("");
-    try {
-      const marketKey = await onAddCrypto(cryptoCandidate);
+      const coin = await fetchCryptoCoin(result.id);
+      const marketKey = await onAddCrypto(coin);
       setSelected(marketKey);
-      setSymbolQuery(cryptoCandidate.symbol);
+      setSymbolQuery(coin.symbol);
       setCryptoResults([]);
-      setCryptoCandidate(null);
     } catch (cause) {
-      setSymbolError(cause instanceof Error ? cause.message : "That coin could not be added.");
+      setSymbolError(cause instanceof Error ? cause.message : "That coin could not be selected.");
     } finally {
       setSymbolLoading(false);
     }
@@ -748,13 +733,17 @@ function TradeDesk({
 
   useEffect(() => {
     const query = symbolQuery.trim();
-    if (query.length < 2 || cryptoCandidate) {
+    if (query.length < 2) {
       if (query.length < 2) setCryptoResults([]);
+      return;
+    }
+    if (market.symbol.toUpperCase() === query.toUpperCase()) {
+      setCryptoResults([]);
       return;
     }
     const timer = window.setTimeout(() => void searchCrypto(), 450);
     return () => window.clearTimeout(timer);
-  }, [symbolQuery, cryptoCandidate]);
+  }, [symbolQuery, market.symbol]);
 
   return (
     <div className="desk-content trade-desk">
@@ -777,7 +766,7 @@ function TradeDesk({
             Search
           </button>
         </div>
-        {cryptoResults.length > 0 && !cryptoCandidate && (
+        {cryptoResults.length > 0 && (
           <div className="crypto-results">
             {cryptoResults.map((coin) => (
               <button key={coin.id} onClick={() => void inspectCrypto(coin)}>
@@ -794,49 +783,6 @@ function TradeDesk({
               </button>
             ))}
           </div>
-        )}
-        {cryptoCandidate && (
-          <article className="crypto-confirmation">
-            <header>
-              <img src={cryptoCandidate.imageUrl} alt="" />
-              <div>
-                <strong>{cryptoCandidate.name}</strong>
-                <span>{cryptoCandidate.symbol} · {cryptoCandidate.providerId}</span>
-              </div>
-              <em>{cryptoCandidate.marketCapRank ? `#${cryptoCandidate.marketCapRank}` : "Unranked"}</em>
-            </header>
-            <div className="crypto-facts">
-              <span><small>Price</small><strong>{marketPrice(cryptoCandidate.price)}</strong></span>
-              <span><small>Market cap</small><strong>{cryptoCandidate.marketCap ? money(cryptoCandidate.marketCap, true) : "Unknown"}</strong></span>
-              <span><small>24h volume</small><strong>{cryptoCandidate.volume24h ? money(cryptoCandidate.volume24h, true) : "Unknown"}</strong></span>
-              <span>
-                <small>24h change</small>
-                <strong className={(cryptoCandidate.change24hPct ?? 0) >= 0 ? "positive-text" : "negative-text"}>
-                  {cryptoCandidate.change24hPct == null ? "Unknown" : `${cryptoCandidate.change24hPct >= 0 ? "+" : ""}${cryptoCandidate.change24hPct.toFixed(2)}%`}
-                </strong>
-              </span>
-            </div>
-            <div className="crypto-identity">
-              <span><strong>Primary chain</strong>{cryptoCandidate.chain}</span>
-              <span>
-                <strong>Contract</strong>
-                {cryptoCandidate.contractAddress
-                  ? `${cryptoCandidate.contractAddress.slice(0, 10)}…${cryptoCandidate.contractAddress.slice(-8)}`
-                  : "Native coin — no token contract"}
-              </span>
-            </div>
-            {cryptoCandidate.contracts.length > 1 && (
-              <small className="multi-chain-note">
-                Also represented on {cryptoCandidate.contracts.length - 1} other chain{cryptoCandidate.contracts.length === 2 ? "" : "s"}.
-              </small>
-            )}
-            <div className="crypto-confirm-actions">
-              <button onClick={() => setCryptoCandidate(null)}>Back to results</button>
-              <button className="confirm" disabled={symbolLoading} onClick={() => void addCrypto()}>
-                <Check size={16} /> Add this verified coin
-              </button>
-            </div>
-          </article>
         )}
         <small>
           {market.source === "coingecko"
@@ -867,7 +813,12 @@ function TradeDesk({
       </div>
       <div className="trade-quote">
         <div>
-          <small>{market.name}</small>
+          <small>
+            {market.name}
+            {market.chain ? ` · ${market.chain}` : ""}
+            {market.marketCap ? ` · Cap ${money(market.marketCap, true)}` : ""}
+            {market.volume24h ? ` · Vol ${money(market.volume24h, true)}` : ""}
+          </small>
           <strong>{marketPrice(market.price)}</strong>
           <span className={change >= 0 ? "positive-text" : "negative-text"}>
             {change >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
@@ -1248,7 +1199,7 @@ function GameBoard({
               <h2>{selected.name}</h2>
               <p>{getHome(selected.homeId).name} · {selected.latestTrade}</p>
             </div>
-            <div className="public-stat"><span>Stocks</span><strong>{money(portfolioValue(selected, snapshot.markets), true)}</strong></div>
+            <div className="public-stat"><span>Crypto</span><strong>{money(portfolioValue(selected, snapshot.markets), true)}</strong></div>
             <div className="public-stat"><span>Possessions</span><strong>{money(possessionsValue(selected), true)}</strong></div>
             <div className="public-stat"><span>Best trade</span><strong>{selected.bestTrade}</strong></div>
           </div>
@@ -1288,7 +1239,7 @@ function GameBoard({
       </button>
       <footer className="game-ticker">
         <span><Radio size={13} /> FAST LANE LIVE</span>
-        <div>Stocks remain the main engine of wealth · Happiness adjusts final score · Insure what you cannot afford to lose · Next billing cycle approaching</div>
+        <div>Crypto remains the main engine of wealth · Happiness adjusts final score · Insure what you cannot afford to lose · Next billing cycle approaching</div>
       </footer>
     </main>
   );
@@ -1370,6 +1321,7 @@ function App() {
   const gameCode = persisted?.snapshot.code ?? getInviteCode();
   const tickBusy = useRef(false);
   const tickRetryAt = useRef(0);
+  const lastUserActionAt = useRef(0);
 
   const load = useCallback(async (code: string) => {
     setLoading(true);
@@ -1444,6 +1396,7 @@ function App() {
   const commit = useCallback(
     async (reducer: (snapshot: GameSnapshot) => void) => {
       if (!persisted) return;
+      lastUserActionAt.current = Date.now();
       try {
         const next = await updatePersistedGame(persisted.snapshot.code, reducer);
         setPersisted(next);
@@ -1467,7 +1420,11 @@ function App() {
     const snapshot = persisted?.snapshot;
     if (!snapshot || snapshot.status !== "playing" || snapshot.hostId !== identity) return;
     const interval = window.setInterval(async () => {
-      if (tickBusy.current || Date.now() < tickRetryAt.current) return;
+      if (
+        tickBusy.current ||
+        Date.now() < tickRetryAt.current ||
+        Date.now() - lastUserActionAt.current < 4_000
+      ) return;
       tickBusy.current = true;
       try {
         let quotes: Awaited<ReturnType<typeof fetchMarketQuotes>> = {};
@@ -1490,7 +1447,6 @@ function App() {
               existing.volume24h = quote.volume24h;
               existing.change24hPct = quote.change24hPct;
               existing.provider = quote.provider;
-              existing.source = quote.provider;
             });
             tickGame(game, Date.now(), livePrices);
           },
@@ -1503,7 +1459,7 @@ function App() {
       } finally {
         tickBusy.current = false;
       }
-    }, 5000);
+    }, 15_000);
     return () => window.clearInterval(interval);
   }, [
     identity,

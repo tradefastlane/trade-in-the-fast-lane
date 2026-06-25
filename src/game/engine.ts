@@ -506,8 +506,14 @@ export const tickGame = (
   Object.entries(snapshot.markets).forEach(([marketKey, market], index) => {
     const livePrice = Number(livePrices[marketKey]);
     if (Number.isFinite(livePrice) && livePrice > 0) {
+      const firstLivePrice =
+        market.source === "simulated" &&
+        (market.provider === "coingecko" || market.provider === "alpaca");
       market.price = livePrice;
-      market.history = [...market.history.slice(-39), livePrice];
+      market.openingPrice = firstLivePrice ? livePrice : market.openingPrice;
+      market.history = firstLivePrice
+        ? Array.from({ length: 24 }, () => livePrice)
+        : [...market.history.slice(-39), livePrice];
       market.source =
         market.provider ||
         (market.assetClass === "crypto" ? "coingecko" : "alpaca");
