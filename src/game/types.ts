@@ -9,6 +9,8 @@ export type LocationId =
   | "work_hub"
   | "food_market"
   | "furniture_store"
+  | "car_dealer"
+  | "collectibles_store"
   | "crypto_exchange";
 export type SkillId =
   | "programming"
@@ -61,6 +63,10 @@ export type PlayerState = {
   nextBotActionAt: number;
   persona: string;
   locationId: LocationId;
+  travelingFrom: LocationId | null;
+  travelingTo: LocationId | null;
+  travelStartedAt: number | null;
+  travelArrivesAt: number | null;
   timeRemaining: number;
   hunger: number;
   health: number;
@@ -130,7 +136,7 @@ export type PersistedGame = {
 export type CatalogAsset = {
   id: string;
   name: string;
-  category: "watch" | "car" | "furniture" | "computer";
+  category: "watch" | "car" | "furniture" | "computer" | "collectible";
   price: number;
   happiness: number;
   volatility: number;
@@ -142,8 +148,11 @@ export type CatalogAsset = {
 export type LocationOption = {
   id: LocationId;
   name: string;
+  mapName?: string;
   icon: string;
   description: string;
+  x: number;
+  y: number;
 };
 
 export type SkillOption = {

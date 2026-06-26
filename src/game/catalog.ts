@@ -20,7 +20,7 @@ export const avatars: Record<
 };
 
 export const marketSeeds = [
-  { key: "crypto:bitcoin", symbol: "BTC", name: "Bitcoin", price: 10_420, assetClass: "crypto" as const, provider: "coingecko" as const, providerId: "bitcoin", chain: "native blockchain" },
+  { key: "crypto:bitcoin", symbol: "BTC", name: "Bitcoin", price: 60_000, assetClass: "crypto" as const, provider: "coingecko" as const, providerId: "bitcoin", chain: "native blockchain" },
   { key: "crypto:ethereum", symbol: "ETH", name: "Ethereum", price: 2_600, assetClass: "crypto" as const, provider: "coingecko" as const, providerId: "ethereum", chain: "ethereum" },
   { key: "crypto:solana", symbol: "SOL", name: "Solana", price: 145, assetClass: "crypto" as const, provider: "coingecko" as const, providerId: "solana", chain: "solana" },
 ];
@@ -135,6 +135,39 @@ export const assetCatalog: CatalogAsset[] = [
     icon: "🚘",
     description: "Luxury transportation and a monthly reminder that luxury needs coverage.",
   },
+  {
+    id: "holo-dragon-card",
+    name: "Holographic Chain Dragon",
+    category: "collectible",
+    price: 2_400,
+    happiness: 7,
+    volatility: 0.035,
+    insuranceRate: 0.035,
+    icon: "🐉",
+    description: "A rare fictional trading card whose price is powered by nostalgia and arguments.",
+  },
+  {
+    id: "genesis-card-box",
+    name: "Sealed Genesis Card Box",
+    category: "collectible",
+    price: 7_500,
+    happiness: 10,
+    volatility: 0.052,
+    insuranceRate: 0.045,
+    icon: "🃏",
+    description: "Never opened, frequently valued, and surrounded by suspiciously confident experts.",
+  },
+  {
+    id: "pixel-punk-print",
+    name: "Signed Pixel Punk Print",
+    category: "collectible",
+    price: 5_200,
+    happiness: 8,
+    volatility: 0.044,
+    insuranceRate: 0.04,
+    icon: "🖼️",
+    description: "Physical proof that digital culture can still occupy wall space.",
+  },
 ];
 
 export const durationOptions = [
@@ -164,12 +197,14 @@ export const personas = [
 ];
 
 export const locations: LocationOption[] = [
-  { id: "apartment", name: "Apartment", icon: "🏠", description: "Rest, use your computer and attempt skill-based side projects." },
-  { id: "academy", name: "Chain Academy", icon: "🎓", description: "Study modern technical and persuasion skills." },
-  { id: "work_hub", name: "Gig & Career Hub", icon: "💼", description: "Apply for jobs and clock paid work." },
-  { id: "food_market", name: "Satoshi Snacks", icon: "🍜", description: "Buy food before hunger wrecks your health." },
-  { id: "furniture_store", name: "Block & Bed", icon: "🛏️", description: "Furniture and equipment improve quality of life." },
-  { id: "crypto_exchange", name: "Fast Lane Exchange", icon: "📈", description: "Search markets and manage leveraged crypto trades." },
+  { id: "apartment", name: "Apartment", icon: "🏠", description: "Rest, use your computer and attempt skill-based side projects.", x: 18, y: 73 },
+  { id: "academy", name: "Chain Academy", icon: "🎓", description: "Study modern technical and persuasion skills.", x: 20, y: 34 },
+  { id: "work_hub", name: "Gig & Career Hub", mapName: "Career Hub", icon: "💼", description: "Apply for jobs and clock paid work.", x: 78, y: 31 },
+  { id: "food_market", name: "Satoshi Snacks", icon: "🍜", description: "Buy food before hunger wrecks your health.", x: 48, y: 76 },
+  { id: "furniture_store", name: "Block & Bed", icon: "🛏️", description: "Buy furniture and computers for a better home life.", x: 79, y: 70 },
+  { id: "car_dealer", name: "Fast Lane Motors", icon: "🚘", description: "Upgrade the car that carries you around the city.", x: 64, y: 80 },
+  { id: "collectibles_store", name: "Collectors' Corner", mapName: "Collectors' Corner", icon: "🃏", description: "Buy watches, cards and other speculative treasures.", x: 82, y: 51 },
+  { id: "crypto_exchange", name: "Fast Lane Exchange", mapName: "Crypto Exchange", icon: "📈", description: "Search markets and manage leveraged crypto trades.", x: 49, y: 35 },
 ];
 
 export const skillOptions: SkillOption[] = [

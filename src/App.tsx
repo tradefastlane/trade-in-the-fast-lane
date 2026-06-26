@@ -81,11 +81,13 @@ import {
   positionRoiPct,
   possessionsValue,
   removeBot,
+  resolveTravel,
   restAtHome,
   sellAsset,
   sellStock,
   studySkill,
   tickGame,
+  travelDurationMs,
   travelTo,
   upsertLiveMarket,
   workShift,
@@ -156,8 +158,8 @@ const tutorialSteps = [
   },
   {
     eyebrow: "THE CITY",
-    title: "Go where the opportunity is.",
-    body: "Visit Chain Academy to qualify, the Career Hub to apply and work, Satoshi Snacks to eat, Block & Bed to shop, or return home to rest and use your computer.",
+    title: "Click a building and drive there.",
+    body: "Your car crosses the shared map in a few real seconds. Distance and vehicle determine the trip. Study at Chain Academy, work at the Career Hub, eat at Satoshi Snacks and shop at specialist stores.",
     icon: House,
     accent: "#68e5c4",
   },
@@ -707,6 +709,10 @@ function TradeDesk({
   const [takeProfitPct, setTakeProfitPct] = useState(50);
   const [trailingPct, setTrailingPct] = useState(20);
   const market = snapshot.markets[selected] ?? Object.values(snapshot.markets)[0];
+  const marketLive =
+    market.source === "coingecko" &&
+    Boolean(market.lastUpdatedAt) &&
+    Date.now() - (market.lastUpdatedAt ?? 0) < 120_000;
   const activeSymbol = market.symbol;
   const maximumAmount = Math.max(1, Math.floor(me.cash));
   const selectedPositions = Object.entries(me.holdings)
@@ -839,9 +845,11 @@ function TradeDesk({
           >
             {item.imageUrl && <img src={item.imageUrl} alt="" />}
             <strong>{item.symbol}</strong>
-            <span className={item.price >= item.openingPrice ? "positive-text" : "negative-text"}>
-              {((item.price / item.openingPrice - 1) * 100).toFixed(2)}%
-            </span>
+            {item.source === "coingecko" ? (
+              <span className={item.price >= item.openingPrice ? "positive-text" : "negative-text"}>
+                {((item.price / item.openingPrice - 1) * 100).toFixed(2)}%
+              </span>
+            ) : <span>WAITING</span>}
           </button>
         ))}
       </div>
@@ -853,13 +861,15 @@ function TradeDesk({
             {market.marketCap ? ` · Cap ${money(market.marketCap, true)}` : ""}
             {market.volume24h ? ` · Vol ${money(market.volume24h, true)}` : ""}
           </small>
-          <strong>{marketPrice(market.price)}</strong>
-          <span className={change >= 0 ? "positive-text" : "negative-text"}>
-            {change >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-            {Math.abs(change).toFixed(2)}% this match
-          </span>
+          <strong>{marketLive ? marketPrice(market.price) : "Waiting for live price…"}</strong>
+          {marketLive && (
+            <span className={change >= 0 ? "positive-text" : "negative-text"}>
+              {change >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+              {Math.abs(change).toFixed(2)}% this match
+            </span>
+          )}
         </div>
-        <MiniChart market={market} />
+        {marketLive ? <MiniChart market={market} /> : <div className="market-loading-line" />}
       </div>
       <div className="order-card">
         <div className="side-toggle">
@@ -955,7 +965,7 @@ function TradeDesk({
         </div>
         <button
           className={`buy-button ${side}`}
-          disabled={me.cash < validAmount || validAmount <= 0}
+          disabled={!marketLive || me.cash < validAmount || validAmount <= 0}
           onClick={() =>
             onBuy(selected, validAmount, {
               side,
@@ -966,7 +976,9 @@ function TradeDesk({
             })
           }
         >
-          {selectedPositions.length ? "Open another" : "Open"} {side.toUpperCase()} {activeSymbol} trade at {leverage}×
+          {marketLive
+            ? `${selectedPositions.length ? "Open another" : "Open"} ${side.toUpperCase()} ${activeSymbol} trade at ${leverage}×`
+            : "Waiting for verified live price"}
         </button>
         <p className="risk-note">
           Leverage multiplies gains and losses. At 100×, a move near 1% against you can liquidate the margin.
@@ -999,7 +1011,7 @@ function TradeDesk({
                   Entry {marketPrice(holding.averagePrice)} · SL {holding.stopLossPct ? `−${holding.stopLossPct}%` : "off"} · TP {holding.takeProfitPct ? `+${holding.takeProfitPct}%` : "off"} · Trail {holding.trailingPct ? `${holding.trailingPct}%` : "off"}
                 </em>
               </div>
-              <button className="sell-button" onClick={() => onSell(positionId)}>Close trade</button>
+              <button className="sell-button" disabled={!marketLive} onClick={() => onSell(positionId)}>Close trade</button>
             </div>
           );
         }) : (
@@ -1014,7 +1026,6 @@ function TradeDesk({
 
 function CityDesk({
   me,
-  onTravel,
   onStudy,
   onApply,
   onWork,
@@ -1022,9 +1033,9 @@ function CityDesk({
   onRest,
   onScheme,
   onMoveHome,
+  onBuyAsset,
 }: {
   me: PlayerState;
-  onTravel: (locationId: LocationId) => void;
   onStudy: (skillId: SkillId) => void;
   onApply: (jobId: string) => void;
   onWork: () => void;
@@ -1032,9 +1043,23 @@ function CityDesk({
   onRest: () => void;
   onScheme: (actionId: ApartmentActionId) => void;
   onMoveHome: (homeId: string) => void;
+  onBuyAsset: (id: string, insured: boolean) => void;
 }) {
   const locationId = me.locationId ?? "apartment";
   const currentJob = getJob(me.jobId);
+  const traveling = Boolean(me.travelingTo && me.travelArrivesAt && me.travelArrivesAt > Date.now());
+  const ownedCar = me.assets
+    .map((owned) => getCatalogAsset(owned.catalogId))
+    .find((item) => item?.category === "car");
+  const vehicleName = ownedCar?.name ?? "Starter Hatchback";
+  const shopCategories =
+    locationId === "furniture_store" ? new Set(["furniture", "computer"])
+      : locationId === "car_dealer" ? new Set(["car"])
+        : locationId === "collectibles_store" ? new Set(["watch", "collectible"])
+          : null;
+  const shopItems = shopCategories
+    ? assetCatalog.filter((item) => shopCategories.has(item.category))
+    : [];
   return (
     <div className="desk-content life-desk city-desk">
       <div className="life-summary">
@@ -1042,25 +1067,16 @@ function CityDesk({
         <div><Heart size={18} /><span><small>Health / Hunger</small><strong>{Math.round(me.health ?? 100)} / {Math.round(me.hunger ?? 80)}</strong></span></div>
       </div>
       <div className="current-location">
-        <span>{getLocation(locationId).icon}</span>
-        <div><small>CURRENT LOCATION</small><strong>{getLocation(locationId).name}</strong><p>{getLocation(locationId).description}</p></div>
+        <span>{traveling ? "🚗" : getLocation(locationId).icon}</span>
+        <div>
+          <small>{traveling ? "DRIVING" : "CURRENT LOCATION"}</small>
+          <strong>{traveling ? `To ${getLocation(me.travelingTo!).name}` : getLocation(locationId).name}</strong>
+          <p>{traveling ? "Your car is moving across the central board." : getLocation(locationId).description}</p>
+        </div>
       </div>
+      <p className="map-travel-hint">Your car: <strong>{vehicleName}</strong>. Click a building on the city map; journey time depends on distance and vehicle.</p>
 
-      <small className="section-label">TRAVEL · 6 MINUTES</small>
-      <div className="city-location-grid">
-        {locations.map((location) => (
-          <button
-            key={location.id}
-            className={locationId === location.id ? "active" : ""}
-            disabled={locationId === location.id || (me.timeRemaining ?? 60) < 6}
-            onClick={() => onTravel(location.id)}
-          >
-            <span>{location.icon}</span><strong>{location.name}</strong>
-          </button>
-        ))}
-      </div>
-
-      {locationId === "academy" && (
+      {!traveling && locationId === "academy" && (
         <section className="city-action-section">
           <small className="section-label">CHAIN ACADEMY · 20 MINUTES PER SESSION</small>
           {skillOptions.map((skill) => {
@@ -1084,7 +1100,7 @@ function CityDesk({
         </section>
       )}
 
-      {locationId === "work_hub" && (
+      {!traveling && locationId === "work_hub" && (
         <section className="city-action-section">
           {currentJob && (
             <article className="current-job-card">
@@ -1107,7 +1123,7 @@ function CityDesk({
         </section>
       )}
 
-      {locationId === "food_market" && (
+      {!traveling && locationId === "food_market" && (
         <section className="city-action-section food-actions">
           <small className="section-label">EAT · 6 MINUTES</small>
           <button onClick={() => onEat("noodles")} disabled={me.cash < 90}>🍜 Noodles · $90</button>
@@ -1116,7 +1132,7 @@ function CityDesk({
         </section>
       )}
 
-      {locationId === "apartment" && (
+      {!traveling && locationId === "apartment" && (
         <section className="city-action-section">
           <button className="rest-button" disabled={(me.timeRemaining ?? 0) < 15} onClick={onRest}>😴 Rest at home · 15m</button>
           <small className="section-label">COMPUTER ACTIONS</small>
@@ -1150,11 +1166,25 @@ function CityDesk({
         </section>
       )}
 
-      {locationId === "furniture_store" && (
-        <p className="desk-explainer">Open the Assets tab to buy beds, computers, cars and watches while you are here.</p>
+      {!traveling && shopItems.length > 0 && (
+        <section className="city-action-section location-shop">
+          <small className="section-label">{getLocation(locationId).name.toUpperCase()} · SHOP</small>
+          {shopItems.map((item) => {
+            const premium = item.price * item.insuranceRate;
+            return (
+              <article key={item.id}>
+                <span className="shop-emoji">{item.icon}</span>
+                <div><strong>{item.name}</strong><p>{item.description}</p><em>{money(item.price)} · ♥ +{item.happiness}</em></div>
+                <button disabled={me.cash < item.price + premium} onClick={() => onBuyAsset(item.id, true)}>
+                  Buy insured · {money(item.price + premium, true)}
+                </button>
+              </article>
+            );
+          })}
+        </section>
       )}
 
-      {locationId === "crypto_exchange" && (
+      {!traveling && locationId === "crypto_exchange" && (
         <p className="desk-explainer">Open the Trade tab to search coins and manage positions. Trading does not consume weekly action time.</p>
       )}
     </div>
@@ -1163,33 +1193,36 @@ function CityDesk({
 
 function AssetDesk({
   me,
-  canShop,
-  onBuy,
   onInsure,
   onSell,
 }: {
   me: PlayerState;
-  canShop: boolean;
-  onBuy: (id: string, insured: boolean) => void;
   onInsure: (instanceId: string) => void;
   onSell: (instanceId: string) => void;
 }) {
-  const [insuranceChoice, setInsuranceChoice] = useState<Record<string, boolean>>({});
   return (
     <div className="desk-content asset-desk">
-      <p className="desk-explainer">Collectibles can appreciate and raise happiness. Insurance costs money now and during billing, but protects the whole item.</p>
-      {!canShop && <div className="location-warning">Travel to Block & Bed before buying new possessions.</div>}
+      <p className="desk-explainer">This is your portfolio only. Buy items by driving to Block & Bed, Fast Lane Motors or Collectors' Corner on the map.</p>
       {me.assets.length > 0 && (
         <section className="owned-assets">
           <small>YOUR COLLECTION</small>
           {me.assets.map((owned) => {
             const item = getCatalogAsset(owned.catalogId)!;
+            const change = owned.currentValue - owned.purchasePrice;
+            const changePct = owned.purchasePrice
+              ? (change / owned.purchasePrice) * 100
+              : 0;
             return (
               <article key={owned.instanceId}>
                 <span className="shop-emoji">{item.icon}</span>
                 <div>
                   <strong>{item.name}</strong>
-                  <p>{money(owned.currentValue)} · {owned.currentValue >= owned.purchasePrice ? "appreciating" : "below purchase price"}</p>
+                  <p>
+                    {money(owned.currentValue)} current · bought for {money(owned.purchasePrice)}
+                  </p>
+                  <em className={change >= 0 ? "positive-text" : "negative-text"}>
+                    {change >= 0 ? "+" : ""}{money(change)} · {changePct >= 0 ? "+" : ""}{changePct.toFixed(2)}%
+                  </em>
                 </div>
                 <span className={`insurance-state ${owned.insured ? "insured" : ""}`}>
                   {owned.insured ? <Shield size={12} /> : <ShieldAlert size={12} />}
@@ -1204,33 +1237,7 @@ function AssetDesk({
           })}
         </section>
       )}
-      <section className="asset-shop">
-        <small>ASSET MARKET</small>
-        {assetCatalog.map((item) => {
-          const insured = insuranceChoice[item.id] ?? true;
-          const premium = item.price * item.insuranceRate;
-          return (
-            <article key={item.id}>
-              <span className="shop-emoji">{item.icon}</span>
-              <div>
-                <strong>{item.name}</strong>
-                <p>{item.description}</p>
-                <span className="shop-meta">
-                  <em><Heart size={11} /> +{item.happiness}</em>
-                  <em><TrendingUp size={11} /> Variable value</em>
-                </span>
-              </div>
-              <label className="insurance-toggle">
-                <input type="checkbox" checked={insured} onChange={(event) => setInsuranceChoice((current) => ({ ...current, [item.id]: event.target.checked }))} />
-                <span><Shield size={12} /> Insurance {money(premium, true)}</span>
-              </label>
-              <button disabled={!canShop || me.cash < item.price + (insured ? premium : 0)} onClick={() => onBuy(item.id, insured)}>
-                Buy · {money(item.price + (insured ? premium : 0), true)}
-              </button>
-            </article>
-          );
-        })}
-      </section>
+      {me.assets.length === 0 && <div className="location-warning">No assets yet. Choose a shop building on the map.</div>}
     </div>
   );
 }
@@ -1253,11 +1260,26 @@ function GameBoard({
   const [, forceClock] = useState(0);
   const selected = snapshot.players[selectedId] ?? me;
   const primaryMarket = snapshot.markets["crypto:bitcoin"] ?? Object.values(snapshot.markets)[0];
+  const primaryMarketIsLive =
+    primaryMarket.source === "coingecko" &&
+    Boolean(primaryMarket.lastUpdatedAt) &&
+    Date.now() - (primaryMarket.lastUpdatedAt ?? 0) < 120_000;
 
   useEffect(() => {
     const timer = window.setInterval(() => forceClock((value) => value + 1), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!me.travelingTo || !me.travelArrivesAt) return;
+    const timer = window.setTimeout(() => {
+      void onAction((game) => {
+        const player = game.players[me.id];
+        if (player) resolveTravel(player, Date.now());
+      });
+    }, Math.max(100, me.travelArrivesAt - Date.now() + 100));
+    return () => window.clearTimeout(timer);
+  }, [me.id, me.travelArrivesAt, me.travelingTo, onAction]);
 
   const remaining = (snapshot.endsAt ?? Date.now()) - Date.now();
   const roundRemaining = (snapshot.roundEndsAt ?? Date.now()) - Date.now();
@@ -1325,36 +1347,63 @@ function GameBoard({
           <div className="board-vignette" />
           <div className="market-overlay glass-panel">
             <div>
-              <span>FAST LANE MARKET · {primaryMarket.symbol}</span>
-              <strong>{marketPrice(primaryMarket.price)}</strong>
-              <em className={primaryMarket.price >= primaryMarket.openingPrice ? "positive-text" : "negative-text"}>
-                {((primaryMarket.price / primaryMarket.openingPrice - 1) * 100).toFixed(2)}%
-              </em>
+              <span>FAST LANE MARKET · BTC · {primaryMarketIsLive ? "LIVE" : "CONNECTING"}</span>
+              <strong>{primaryMarketIsLive ? marketPrice(primaryMarket.price) : "Loading live BTC…"}</strong>
+              {primaryMarketIsLive && (
+                <em className={primaryMarket.price >= primaryMarket.openingPrice ? "positive-text" : "negative-text"}>
+                  {((primaryMarket.price / primaryMarket.openingPrice - 1) * 100).toFixed(2)}%
+                </em>
+              )}
             </div>
-            <MiniChart market={primaryMarket} />
+            {primaryMarketIsLive ? <MiniChart market={primaryMarket} /> : <div className="market-loading-line" />}
+          </div>
+
+          <div className="board-locations">
+            {locations.map((location) => {
+              const here = (me.locationId ?? "apartment") === location.id && !me.travelingTo;
+              const travelSeconds = Math.ceil(travelDurationMs(me, location.id) / 1000);
+              return (
+                <button
+                  key={location.id}
+                  className={`map-location ${here ? "active" : ""}`}
+                  style={{ left: `${location.x}%`, top: `${location.y}%` }}
+                  disabled={here || Boolean(me.travelingTo)}
+                  onClick={() => {
+                    setDeskTab("life");
+                    void travel(location.id);
+                  }}
+                  title={`${location.name} · about ${travelSeconds} seconds by car`}
+                >
+                  <span>{location.icon}</span>
+                  <strong>{location.mapName ?? location.name}</strong>
+                  {!here && <small>{travelSeconds}s drive</small>}
+                </button>
+              );
+            })}
           </div>
 
           {Object.values(snapshot.players).map((player, index) => {
-            const locationPositions: Record<LocationId, { left: string; top: string }> = {
-              apartment: { left: "20%", top: "70%" },
-              academy: { left: "23%", top: "35%" },
-              work_hub: { left: "76%", top: "34%" },
-              food_market: { left: "50%", top: "72%" },
-              furniture_store: { left: "78%", top: "70%" },
-              crypto_exchange: { left: "50%", top: "37%" },
+            const from = getLocation(player.travelingFrom ?? player.locationId ?? "apartment");
+            const destination = getLocation(player.travelingTo ?? player.locationId ?? "apartment");
+            const travelLength = Math.max(1, (player.travelArrivesAt ?? 0) - (player.travelStartedAt ?? 0));
+            const progress = player.travelingTo
+              ? Math.max(0, Math.min(1, (Date.now() - (player.travelStartedAt ?? Date.now())) / travelLength))
+              : 1;
+            const base = {
+              left: from.x + (destination.x - from.x) * progress,
+              top: from.y + (destination.y - from.y) * progress,
             };
-            const base = locationPositions[player.locationId ?? "apartment"];
             const offset = (index % 3) * 4;
             return (
               <button
-                className={`board-player ${selectedId === player.id ? "active" : ""}`}
+                className={`board-player ${selectedId === player.id ? "active" : ""} ${player.travelingTo ? "driving" : ""}`}
                 key={player.id}
-                style={{ left: `calc(${base.left} + ${offset}px)`, top: `calc(${base.top} + ${offset}px)`, "--player": player.color } as React.CSSProperties}
+                style={{ left: `calc(${base.left}% + ${offset}px)`, top: `calc(${base.top}% + ${offset}px)`, "--player": player.color } as React.CSSProperties}
                 onClick={() => setSelectedId(player.id)}
               >
-                <span><img src={avatars[player.avatar].image} alt="" /></span>
+                <span>{player.travelingTo ? "🚗" : <img src={avatars[player.avatar].image} alt="" />}</span>
                 <strong>{player.name}</strong>
-                <small>{money(netWorth(player, snapshot.markets), true)} · ♥ {Math.round(player.happiness)}</small>
+                <small>{player.travelingTo ? `Driving to ${destination.name}` : `${money(netWorth(player, snapshot.markets), true)} · ♥ ${Math.round(player.happiness)}`}</small>
               </button>
             );
           })}
@@ -1397,7 +1446,6 @@ function GameBoard({
           {deskTab === "life" && (
             <CityDesk
               me={me}
-              onTravel={travel}
               onStudy={study}
               onApply={apply}
               onWork={work}
@@ -1405,9 +1453,10 @@ function GameBoard({
               onRest={rest}
               onScheme={scheme}
               onMoveHome={move}
+              onBuyAsset={purchaseAsset}
             />
           )}
-          {deskTab === "assets" && <AssetDesk me={me} canShop={(me.locationId ?? "apartment") === "furniture_store"} onBuy={purchaseAsset} onInsure={insure} onSell={sellPossession} />}
+          {deskTab === "assets" && <AssetDesk me={me} onInsure={insure} onSell={sellPossession} />}
         </aside>
 
         <EventFeed events={snapshot.events} players={snapshot.players} />
@@ -1474,7 +1523,7 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
         <span><HelpCircle size={20} /> QUICK RULES</span>
         <h2>How to win the Fast Lane</h2>
         <div className="help-grid">
-          <article><Timer size={22} /><strong>Use each week</strong><p>Everyone acts simultaneously. Travel, study, work, food and rest consume your 60 weekly action minutes.</p></article>
+          <article><Timer size={22} /><strong>Drive around the city</strong><p>Click buildings on the map. Travel visibly takes a few seconds and also consumes some weekly action time.</p></article>
           <article><GraduationCap size={22} /><strong>Build useful skills</strong><p>Qualifications unlock careers and fictional computer actions with uncertain rewards and consequences.</p></article>
           <article><HeartPulse size={22} /><strong>Stay functional</strong><p>Food, rest, housing and possessions support health and happiness. Neglect creates penalties.</p></article>
           <article><TrendingUp size={22} /><strong>Trade on the side</strong><p>Crypto positions use no action minutes. Leverage and automatic exits can help—or erase margin quickly.</p></article>
@@ -1542,6 +1591,14 @@ function App() {
     duration: 15 | 30 | 60,
   ) => {
     const snapshot = createGameSnapshot(identity, name, avatar, duration);
+    try {
+      const quotes = await fetchMarketQuotes(snapshot.markets);
+      Object.values(quotes).forEach((quote) => {
+        upsertLiveMarket(snapshot, quote);
+      });
+    } catch (cause) {
+      console.warn("The room will connect to live prices after creation.", cause);
+    }
     const game = await createPersistedGame(snapshot);
     setPersisted(game);
     setError("");

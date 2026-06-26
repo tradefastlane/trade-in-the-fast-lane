@@ -52,6 +52,10 @@ export const makePlayer = (
   nextBotActionAt: 0,
   persona: personas[Math.floor(Math.random() * personas.length)],
   locationId: "apartment",
+  travelingFrom: null,
+  travelingTo: null,
+  travelStartedAt: null,
+  travelArrivesAt: null,
   timeRemaining: 60,
   hunger: 82,
   health: 100,
@@ -65,6 +69,10 @@ export const makePlayer = (
 const normalizeLegacyPlayer = (player: PlayerState) => {
   player.persona ??= personas[Math.floor(Math.random() * personas.length)];
   player.locationId ??= "apartment";
+  player.travelingFrom ??= null;
+  player.travelingTo ??= null;
+  player.travelStartedAt ??= null;
+  player.travelArrivesAt ??= null;
   player.timeRemaining ??= 60;
   player.hunger ??= 82;
   player.health ??= 100;
@@ -130,10 +138,14 @@ export const upsertLiveMarket = (
   };
   const existing = snapshot.markets[marketKey];
   if (existing) {
+    const firstLivePrice = existing.source === "simulated";
     Object.assign(existing, metadata);
     existing.name = quote.name || existing.name;
     existing.price = quote.price;
-    existing.history = [...existing.history.slice(-39), quote.price];
+    existing.openingPrice = firstLivePrice ? quote.price : existing.openingPrice;
+    existing.history = firstLivePrice
+      ? Array.from({ length: 24 }, () => quote.price)
+      : [...existing.history.slice(-39), quote.price];
     existing.source = quote.provider || "alpaca";
     existing.lastUpdatedAt = Date.now();
   } else {
@@ -212,8 +224,43 @@ export const getSkill = (id: SkillId) =>
 export const getJob = (id: string | null) =>
   jobOptions.find((job) => job.id === id);
 
+export const resolveTravel = (player: PlayerState, at = Date.now()) => {
+  normalizeLegacyPlayer(player);
+  if (!player.travelingTo || !player.travelArrivesAt || at < player.travelArrivesAt) {
+    return false;
+  }
+  player.locationId = player.travelingTo;
+  player.travelingFrom = null;
+  player.travelingTo = null;
+  player.travelStartedAt = null;
+  player.travelArrivesAt = null;
+  return true;
+};
+
+const playerTravelSpeed = (player: PlayerState) => {
+  const cars = player.assets
+    .map((owned) => getCatalogAsset(owned.catalogId))
+    .filter((asset) => asset?.category === "car");
+  if (cars.some((car) => car?.id === "grand-tourer")) return 1.65;
+  if (cars.some((car) => car?.id === "sport-coupe")) return 1.45;
+  return 1;
+};
+
+export const travelDurationMs = (
+  player: PlayerState,
+  destinationId: LocationId,
+) => {
+  normalizeLegacyPlayer(player);
+  const from = getLocation(player.locationId);
+  const destination = getLocation(destinationId);
+  const distance = Math.hypot(destination.x - from.x, destination.y - from.y);
+  return Math.round(Math.max(2_000, Math.min(9_000, (1_700 + distance * 95) / playerTravelSpeed(player))));
+};
+
 const spendTime = (player: PlayerState, cost: number) => {
   normalizeLegacyPlayer(player);
+  resolveTravel(player);
+  if (player.travelingTo) return false;
   if (player.timeRemaining < cost) return false;
   player.timeRemaining -= cost;
   player.energy = Math.max(0, player.energy - cost * 0.35);
@@ -228,14 +275,22 @@ export const travelTo = (
   const player = snapshot.players[playerId];
   if (!player) return false;
   normalizeLegacyPlayer(player);
+  resolveTravel(player);
+  if (player.travelingTo) return false;
   if (player.locationId === locationId) return true;
-  if (!spendTime(player, 6)) return false;
-  player.locationId = locationId;
+  const duration = travelDurationMs(player, locationId);
+  const actionCost = Math.max(2, Math.ceil(duration / 1_500));
+  if (!spendTime(player, actionCost)) return false;
+  const now = Date.now();
+  player.travelingFrom = player.locationId;
+  player.travelingTo = locationId;
+  player.travelStartedAt = now;
+  player.travelArrivesAt = now + duration;
   addEvent(snapshot, {
     type: "life",
     playerId,
-    title: `${player.name} travelled to ${getLocation(locationId).name}`,
-    detail: "Six minutes disappeared into traffic, parking and questionable navigation.",
+    title: `${player.name} is driving to ${getLocation(locationId).name}`,
+    detail: `${Math.ceil(duration / 1000)} seconds through Fast Lane traffic in their starter car.`,
   });
   return true;
 };
@@ -677,6 +732,13 @@ export const buyAsset = (
   const player = snapshot.players[playerId];
   const item = getCatalogAsset(catalogId);
   if (!player || !item) return false;
+  resolveTravel(player);
+  const requiredLocation: LocationId =
+    item.category === "car" ? "car_dealer"
+      : item.category === "watch" || item.category === "collectible"
+        ? "collectibles_store"
+        : "furniture_store";
+  if (player.travelingTo || player.locationId !== requiredLocation) return false;
   const premium = insure ? item.price * item.insuranceRate : 0;
   const total = item.price + premium;
   if (player.cash < total) return false;
@@ -829,6 +891,7 @@ export const tickGame = (
 
   Object.values(snapshot.players).forEach((player) => {
     normalizeLegacyPlayer(player);
+    resolveTravel(player, at);
     Object.entries(player.holdings).forEach(([positionId, holding]) => {
       normalizeLegacyHolding(holding, positionId, positionId);
       const market = snapshot.markets[holding.symbol];
