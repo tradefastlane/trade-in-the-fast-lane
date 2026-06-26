@@ -4,7 +4,11 @@ import {
   avatars,
   botProfiles,
   homeOptions,
+  jobOptions,
+  locations,
   marketSeeds,
+  personas,
+  skillOptions,
 } from "./catalog";
 import type {
   AvatarId,
@@ -15,6 +19,8 @@ import type {
   OwnedAsset,
   PlayerState,
   PositionSide,
+  SkillId,
+  LocationId,
 } from "./types";
 
 const nowId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -44,7 +50,30 @@ export const makePlayer = (
   isBot: false,
   botSkill: 0,
   nextBotActionAt: 0,
+  persona: personas[Math.floor(Math.random() * personas.length)],
+  locationId: "apartment",
+  timeRemaining: 60,
+  hunger: 82,
+  health: 100,
+  energy: 85,
+  skills: {},
+  studyProgress: {},
+  jobId: null,
+  reputation: 50,
 });
+
+const normalizeLegacyPlayer = (player: PlayerState) => {
+  player.persona ??= personas[Math.floor(Math.random() * personas.length)];
+  player.locationId ??= "apartment";
+  player.timeRemaining ??= 60;
+  player.hunger ??= 82;
+  player.health ??= 100;
+  player.energy ??= 85;
+  player.skills ??= {};
+  player.studyProgress ??= {};
+  player.jobId ??= null;
+  player.reputation ??= 50;
+};
 
 const makeMarket = (
   symbol: string,
@@ -163,6 +192,8 @@ export const createGameSnapshot = (
     lastMarketTick: Date.now(),
     nextIncidentAt: Date.now() + 35_000,
     nextBillingAt: Date.now() + durationMinutes * 60_000 / 6,
+    roundNumber: 0,
+    roundEndsAt: null,
   };
 };
 
@@ -171,6 +202,228 @@ export const getHome = (id: string) =>
 
 export const getCatalogAsset = (id: string) =>
   assetCatalog.find((asset) => asset.id === id);
+
+export const getLocation = (id: LocationId) =>
+  locations.find((location) => location.id === id) ?? locations[0];
+
+export const getSkill = (id: SkillId) =>
+  skillOptions.find((skill) => skill.id === id) ?? skillOptions[0];
+
+export const getJob = (id: string | null) =>
+  jobOptions.find((job) => job.id === id);
+
+const spendTime = (player: PlayerState, cost: number) => {
+  normalizeLegacyPlayer(player);
+  if (player.timeRemaining < cost) return false;
+  player.timeRemaining -= cost;
+  player.energy = Math.max(0, player.energy - cost * 0.35);
+  return true;
+};
+
+export const travelTo = (
+  snapshot: GameSnapshot,
+  playerId: string,
+  locationId: LocationId,
+) => {
+  const player = snapshot.players[playerId];
+  if (!player) return false;
+  normalizeLegacyPlayer(player);
+  if (player.locationId === locationId) return true;
+  if (!spendTime(player, 6)) return false;
+  player.locationId = locationId;
+  addEvent(snapshot, {
+    type: "life",
+    playerId,
+    title: `${player.name} travelled to ${getLocation(locationId).name}`,
+    detail: "Six minutes disappeared into traffic, parking and questionable navigation.",
+  });
+  return true;
+};
+
+export const studySkill = (
+  snapshot: GameSnapshot,
+  playerId: string,
+  skillId: SkillId,
+) => {
+  const player = snapshot.players[playerId];
+  const skill = skillOptions.find((item) => item.id === skillId);
+  if (!player || !skill) return false;
+  normalizeLegacyPlayer(player);
+  if (skill.prerequisite && !player.skills[skill.prerequisite]) return false;
+  if (player.locationId !== "academy" || !spendTime(player, 20)) return false;
+
+  const current = player.studyProgress[skillId] ?? 0;
+  const next = Math.min(skill.studyRequired, current + 20);
+  player.studyProgress[skillId] = next;
+  if (next >= skill.studyRequired && !player.skills[skillId]) {
+    player.skills[skillId] = 1;
+    player.happiness = Math.min(100, player.happiness + 5);
+    player.reputation = Math.min(100, player.reputation + 4);
+    addEvent(snapshot, {
+      type: "life",
+      playerId,
+      title: `${player.name} qualified in ${skill.name}`,
+      detail: `${skill.name} actions and careers are now unlocked.`,
+      positive: true,
+    });
+  } else {
+    addEvent(snapshot, {
+      type: "life",
+      playerId,
+      title: `${player.name} studied ${skill.name}`,
+      detail: `${next}/${skill.studyRequired} qualification progress.`,
+      positive: true,
+    });
+  }
+  return true;
+};
+
+export const applyForJob = (
+  snapshot: GameSnapshot,
+  playerId: string,
+  jobId: string,
+) => {
+  const player = snapshot.players[playerId];
+  const job = jobOptions.find((item) => item.id === jobId);
+  if (!player || !job) return false;
+  normalizeLegacyPlayer(player);
+  if (job.skill && (player.skills[job.skill] ?? 0) < (job.skillLevel ?? 1)) return false;
+  if (player.locationId !== "work_hub" || !spendTime(player, 8)) return false;
+  player.jobId = job.id;
+  player.reputation = Math.min(100, player.reputation + 2);
+  addEvent(snapshot, {
+    type: "life",
+    playerId,
+    title: `${player.name} landed a job as ${job.name}`,
+    detail: `${formatMoney(job.pay)} per completed work shift.`,
+    positive: true,
+  });
+  return true;
+};
+
+export const workShift = (snapshot: GameSnapshot, playerId: string) => {
+  const player = snapshot.players[playerId];
+  if (!player) return false;
+  normalizeLegacyPlayer(player);
+  const job = getJob(player.jobId);
+  if (!job || player.locationId !== "work_hub" || !spendTime(player, job.timeCost)) return false;
+  const healthPenalty = player.health < 45 ? 0.75 : 1;
+  const pay = job.pay * healthPenalty;
+  player.cash += pay;
+  player.happiness = Math.max(0, Math.min(100, player.happiness + job.happiness));
+  player.hunger = Math.max(0, player.hunger - 9);
+  addEvent(snapshot, {
+    type: "life",
+    playerId,
+    title: `${player.name} completed a ${job.name} shift`,
+    detail: `${formatMoney(pay)} earned${healthPenalty < 1 ? " after a sick-day penalty" : ""}.`,
+    positive: true,
+  });
+  return true;
+};
+
+export const buyMeal = (
+  snapshot: GameSnapshot,
+  playerId: string,
+  meal: "noodles" | "proper_meal" | "brain_food",
+) => {
+  const player = snapshot.players[playerId];
+  if (!player) return false;
+  normalizeLegacyPlayer(player);
+  if (player.locationId !== "food_market") return false;
+  const options = {
+    noodles: { cost: 90, hunger: 24, health: -1, happiness: 0, name: "Instant Block Noodles" },
+    proper_meal: { cost: 260, hunger: 48, health: 4, happiness: 2, name: "Proof-of-Steak Dinner" },
+    brain_food: { cost: 480, hunger: 38, health: 7, happiness: 4, name: "Quantum Superfood Bowl" },
+  };
+  const food = options[meal];
+  if (player.cash < food.cost || !spendTime(player, 6)) return false;
+  player.cash -= food.cost;
+  player.hunger = Math.min(100, player.hunger + food.hunger);
+  player.health = Math.max(0, Math.min(100, player.health + food.health));
+  player.happiness = Math.min(100, player.happiness + food.happiness);
+  addEvent(snapshot, {
+    type: "life",
+    playerId,
+    title: `${player.name} ate ${food.name}`,
+    detail: `${formatMoney(food.cost)} converted into temporary survival.`,
+    positive: true,
+  });
+  return true;
+};
+
+export const restAtHome = (snapshot: GameSnapshot, playerId: string) => {
+  const player = snapshot.players[playerId];
+  if (!player) return false;
+  normalizeLegacyPlayer(player);
+  if (player.locationId !== "apartment" || !spendTime(player, 15)) return false;
+  const ownsBed = player.assets.some((asset) => asset.catalogId === "proper-bed");
+  player.energy = Math.min(100, player.energy + (ownsBed ? 48 : 28));
+  player.health = Math.min(100, player.health + (ownsBed ? 5 : 2));
+  player.stress = Math.max(0, player.stress - (ownsBed ? 12 : 7));
+  return true;
+};
+
+export type ApartmentActionId =
+  | "bug_bounty"
+  | "persuasion_hustle"
+  | "viral_campaign"
+  | "shadow_market";
+
+export const attemptApartmentAction = (
+  snapshot: GameSnapshot,
+  playerId: string,
+  actionId: ApartmentActionId,
+) => {
+  const player = snapshot.players[playerId];
+  if (!player) return false;
+  normalizeLegacyPlayer(player);
+  if (player.locationId !== "apartment") return false;
+
+  const actions = {
+    bug_bounty: { skill: "cybersecurity" as SkillId, time: 18, success: 0.62, reward: [900, 5_500], risk: 0.08, name: "security bug bounty" },
+    persuasion_hustle: { skill: "social_engineering" as SkillId, time: 15, success: 0.55, reward: [600, 3_600], risk: 0.28, name: "dubious persuasion hustle" },
+    viral_campaign: { skill: "digital_marketing" as SkillId, time: 16, success: 0.64, reward: [700, 4_200], risk: 0.12, name: "viral token campaign" },
+    shadow_market: { skill: "blockchain" as SkillId, time: 24, success: 0.42, reward: [2_500, 12_000], risk: 0.36, name: "underground marketplace prototype" },
+  };
+  const action = actions[actionId];
+  if (!player.skills[action.skill] || !spendTime(player, action.time)) return false;
+
+  const roll = Math.random();
+  const skillBoost = Math.min(0.12, player.reputation / 1000);
+  if (roll < action.success + skillBoost) {
+    const reward = action.reward[0] + Math.random() * (action.reward[1] - action.reward[0]);
+    player.cash += reward;
+    player.reputation = Math.min(100, player.reputation + (actionId === "bug_bounty" ? 5 : 1));
+    addEvent(snapshot, {
+      type: "life",
+      playerId,
+      title: `${player.name}'s ${action.name} paid off`,
+      detail: `${formatMoney(reward)} earned. The exact method remains tastefully abstract.`,
+      positive: true,
+    });
+  } else if (Math.random() < action.risk) {
+    const fine = Math.min(player.cash, 600 + Math.random() * 3_400);
+    player.cash -= fine;
+    player.reputation = Math.max(0, player.reputation - 12);
+    player.stress = Math.min(100, player.stress + 18);
+    addEvent(snapshot, {
+      type: "life",
+      playerId,
+      title: `${player.name}'s ${action.name} backfired`,
+      detail: `${formatMoney(fine)} vanished into fines, refunds and emergency legal advice.`,
+    });
+  } else {
+    player.stress = Math.min(100, player.stress + 5);
+    addEvent(snapshot, {
+      type: "life",
+      playerId,
+      title: `${player.name}'s ${action.name} fizzled`,
+      detail: "Time was spent. Nothing useful happened. Very authentic.",
+    });
+  }
+  return true;
+};
 
 export const addEvent = (
   snapshot: GameSnapshot,
@@ -495,12 +748,56 @@ export const sellAsset = (
   return true;
 };
 
+export const advanceGameRounds = (
+  snapshot: GameSnapshot,
+  at = Date.now(),
+) => {
+  if (snapshot.status !== "playing") return;
+  snapshot.roundNumber ??= 1;
+  snapshot.roundEndsAt ??= at + 60_000;
+  if (at < snapshot.roundEndsAt) return;
+  const roundsPassed = Math.max(1, Math.floor((at - snapshot.roundEndsAt) / 60_000) + 1);
+  snapshot.roundNumber += roundsPassed;
+  snapshot.roundEndsAt += roundsPassed * 60_000;
+  Object.values(snapshot.players).forEach((player) => {
+    normalizeLegacyPlayer(player);
+    player.timeRemaining = 60;
+    player.hunger = Math.max(0, player.hunger - 8 * roundsPassed);
+    player.energy = Math.min(100, player.energy + 8 * roundsPassed);
+    if (player.hunger < 25) {
+      player.health = Math.max(0, player.health - 6 * roundsPassed);
+      player.happiness = Math.max(0, player.happiness - 3 * roundsPassed);
+    }
+    if (player.health <= 0) {
+      player.cash = Math.max(0, player.cash - 1_500);
+      player.health = 35;
+      player.locationId = "apartment";
+      addEvent(snapshot, {
+        type: "life",
+        playerId: player.id,
+        title: `${player.name} collapsed from neglect`,
+        detail: "A costly clinic visit restored minimal health and delivered a stern lecture.",
+      });
+    }
+  });
+  addEvent(snapshot, {
+    type: "system",
+    title: `Week ${snapshot.roundNumber} began`,
+    detail: "Everyone received 60 fresh minutes. Hunger continues to disrespect ambition.",
+    positive: true,
+  });
+};
+
 export const tickGame = (
   snapshot: GameSnapshot,
   at = Date.now(),
   livePrices: Record<string, number> = {},
 ) => {
   if (snapshot.status !== "playing") return;
+  advanceGameRounds(snapshot, at);
+  if (snapshot.status !== "playing") {
+    return;
+  }
   const elapsedSeconds = Math.max(1, (at - snapshot.lastMarketTick) / 1000);
 
   Object.entries(snapshot.markets).forEach(([marketKey, market], index) => {
@@ -531,6 +828,7 @@ export const tickGame = (
   });
 
   Object.values(snapshot.players).forEach((player) => {
+    normalizeLegacyPlayer(player);
     Object.entries(player.holdings).forEach(([positionId, holding]) => {
       normalizeLegacyHolding(holding, positionId, positionId);
       const market = snapshot.markets[holding.symbol];
@@ -606,12 +904,79 @@ const marketMomentum = (market: MarketState) => {
   return (lookback[lookback.length - 1] / lookback[0] - 1) * 100;
 };
 
+const runBotLifeAction = (
+  snapshot: GameSnapshot,
+  player: PlayerState,
+) => {
+  normalizeLegacyPlayer(player);
+  if (player.timeRemaining < 6) return false;
+
+  const travelOr = (locationId: LocationId, action: () => boolean) =>
+    player.locationId === locationId
+      ? action()
+      : travelTo(snapshot, player.id, locationId);
+
+  if (player.hunger < 48) {
+    return travelOr("food_market", () =>
+      buyMeal(
+        snapshot,
+        player.id,
+        player.cash > 3_000 ? "proper_meal" : "noodles",
+      ));
+  }
+  if (player.energy < 28) {
+    return travelOr("apartment", () => restAtHome(snapshot, player.id));
+  }
+
+  const qualifiedJobs = jobOptions
+    .filter((job) => !job.skill || (player.skills[job.skill] ?? 0) >= (job.skillLevel ?? 1))
+    .sort((a, b) => b.pay / b.timeCost - a.pay / a.timeCost);
+  const bestJob = qualifiedJobs[0];
+  const currentJob = getJob(player.jobId);
+
+  if (bestJob && (!currentJob || bestJob.pay > currentJob.pay)) {
+    return travelOr("work_hub", () => applyForJob(snapshot, player.id, bestJob.id));
+  }
+
+  if (currentJob && player.timeRemaining >= currentJob.timeCost && Math.random() < 0.52) {
+    return travelOr("work_hub", () => workShift(snapshot, player.id));
+  }
+
+  const studyPlan: SkillId[] = player.botSkill > 0.84
+    ? ["programming", "blockchain", "cybersecurity", "quantum"]
+    : player.botSkill > 0.79
+      ? ["digital_marketing", "social_engineering", "programming"]
+      : ["programming", "digital_marketing", "blockchain"];
+  const nextSkill = studyPlan.find((skillId) => {
+    if (player.skills[skillId]) return false;
+    const skill = getSkill(skillId);
+    return !skill.prerequisite || Boolean(player.skills[skill.prerequisite]);
+  });
+  if (nextSkill && player.timeRemaining >= 20 && Math.random() < 0.72) {
+    return travelOr("academy", () => studySkill(snapshot, player.id, nextSkill));
+  }
+
+  const unlockedAction: ApartmentActionId | undefined =
+    player.skills.cybersecurity ? "bug_bounty"
+      : player.skills.digital_marketing ? "viral_campaign"
+        : player.skills.social_engineering ? "persuasion_hustle"
+          : player.skills.blockchain ? "shadow_market"
+            : undefined;
+  if (unlockedAction && player.timeRemaining >= 18) {
+    return travelOr("apartment", () =>
+      attemptApartmentAction(snapshot, player.id, unlockedAction));
+  }
+
+  return false;
+};
+
 const runBotAction = (
   snapshot: GameSnapshot,
   player: PlayerState,
   at: number,
 ) => {
   player.nextBotActionAt = at + 6_000 + Math.random() * 9_000;
+  if (Math.random() < 0.64 && runBotLifeAction(snapshot, player)) return;
   const openPositions = Object.entries(player.holdings).map(([positionId, holding]) => {
     normalizeLegacyHolding(holding, positionId, positionId);
     return [positionId, holding] as const;

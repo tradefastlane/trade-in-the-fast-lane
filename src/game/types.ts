@@ -3,6 +3,20 @@ export type GameStatus = "lobby" | "briefing" | "playing" | "finished";
 export type AvatarId = "alex" | "mina" | "dante" | "jules";
 
 export type PositionSide = "long" | "short";
+export type LocationId =
+  | "apartment"
+  | "academy"
+  | "work_hub"
+  | "food_market"
+  | "furniture_store"
+  | "crypto_exchange";
+export type SkillId =
+  | "programming"
+  | "blockchain"
+  | "cybersecurity"
+  | "quantum"
+  | "social_engineering"
+  | "digital_marketing";
 
 export type Holding = {
   id: string;
@@ -45,6 +59,16 @@ export type PlayerState = {
   isBot: boolean;
   botSkill: number;
   nextBotActionAt: number;
+  persona: string;
+  locationId: LocationId;
+  timeRemaining: number;
+  hunger: number;
+  health: number;
+  energy: number;
+  skills: Partial<Record<SkillId, number>>;
+  studyProgress: Partial<Record<SkillId, number>>;
+  jobId: string | null;
+  reputation: number;
 };
 
 export type MarketState = {
@@ -94,6 +118,8 @@ export type GameSnapshot = {
   lastMarketTick: number;
   nextIncidentAt: number;
   nextBillingAt: number;
+  roundNumber: number;
+  roundEndsAt: number | null;
 };
 
 export type PersistedGame = {
@@ -104,12 +130,40 @@ export type PersistedGame = {
 export type CatalogAsset = {
   id: string;
   name: string;
-  category: "watch" | "car";
+  category: "watch" | "car" | "furniture" | "computer";
   price: number;
   happiness: number;
   volatility: number;
   insuranceRate: number;
   icon: string;
+  description: string;
+};
+
+export type LocationOption = {
+  id: LocationId;
+  name: string;
+  icon: string;
+  description: string;
+};
+
+export type SkillOption = {
+  id: SkillId;
+  name: string;
+  icon: string;
+  description: string;
+  studyRequired: number;
+  prerequisite?: SkillId;
+};
+
+export type JobOption = {
+  id: string;
+  name: string;
+  locationId: LocationId;
+  pay: number;
+  timeCost: number;
+  happiness: number;
+  skill?: SkillId;
+  skillLevel?: number;
   description: string;
 };
 

@@ -7,7 +7,6 @@ import {
   BarChart3,
   BriefcaseBusiness,
   Building2,
-  Car,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -17,9 +16,10 @@ import {
   Copy,
   Crown,
   Gauge,
+  GraduationCap,
   Heart,
+  HeartPulse,
   HelpCircle,
-  Home,
   House,
   Info,
   Landmark,
@@ -49,17 +49,27 @@ import {
   avatars,
   durationOptions,
   homeOptions,
+  jobOptions,
+  locations,
+  skillOptions,
 } from "./game/catalog";
 import {
   addSmartBot,
   addEvent,
+  advanceGameRounds,
+  applyForJob,
+  attemptApartmentAction,
   buyAsset,
+  buyMeal,
   buyStock,
   createGameSnapshot,
   finalScore,
   formatMoney,
   getCatalogAsset,
   getHome,
+  getJob,
+  getLocation,
+  getSkill,
   happinessMultiplier,
   holdingProfit,
   insureAsset,
@@ -71,10 +81,14 @@ import {
   positionRoiPct,
   possessionsValue,
   removeBot,
+  restAtHome,
   sellAsset,
   sellStock,
+  studySkill,
   tickGame,
+  travelTo,
   upsertLiveMarket,
+  workShift,
 } from "./game/engine";
 import type {
   AvatarId,
@@ -84,7 +98,10 @@ import type {
   PersistedGame,
   PlayerState,
   PositionSide,
+  SkillId,
+  LocationId,
 } from "./game/types";
+import type { ApartmentActionId } from "./game/engine";
 import {
   createPersistedGame,
   ensureIdentity,
@@ -132,37 +149,37 @@ const updateUrl = (code?: string) => {
 const tutorialSteps = [
   {
     eyebrow: "THE OBJECTIVE",
-    title: "Build wealth without forgetting to live.",
-    body: "Stocks are the main way to earn money. Cars, watches and homes can add value and happiness. When time expires, the highest life-adjusted score wins.",
+    title: "Build a career, a fortune and a life.",
+    body: "Each one-minute week gives every player 60 action minutes. Travel, study, work, eat and rest before the week resets. When the match ends, the highest life-adjusted score wins.",
     icon: Trophy,
     accent: "#f4bd57",
   },
   {
-    eyebrow: "THE CENTRAL BOARD",
-    title: "Everyone’s public life unfolds here.",
-    body: "The shared board shows standings, happiness, important trades, possessions and incidents. It is designed for a television, stream or second monitor.",
-    icon: Radio,
+    eyebrow: "THE CITY",
+    title: "Go where the opportunity is.",
+    body: "Visit Chain Academy to qualify, the Career Hub to apply and work, Satoshi Snacks to eat, Block & Bed to shop, or return home to rest and use your computer.",
+    icon: House,
     accent: "#68e5c4",
   },
   {
-    eyebrow: "YOUR TRADING DESK",
-    title: "Take a side, choose leverage, protect the trade.",
-    body: "Open a long or short position with leverage from 1× to 100×. Optional stop-loss, take-profit and trailing-exit presets close the trade automatically.",
-    icon: TrendingUp,
+    eyebrow: "SKILLS & CAREERS",
+    title: "Qualifications unlock better choices.",
+    body: "Study programming, blockchain engineering, cybersecurity, quantum computing, social engineering or online marketing. Skills unlock jobs and fictional risk-and-reward computer actions.",
+    icon: GraduationCap,
     accent: "#b991ff",
   },
   {
-    eyebrow: "LIFE & HAPPINESS",
-    title: "A better life can overturn a narrow money lead.",
-    body: "Homes and luxury assets raise happiness. Final Score equals Net Worth multiplied by a happiness factor between 0.85× and 1.05×.",
-    icon: Heart,
+    eyebrow: "HEALTH & HAPPINESS",
+    title: "Success is difficult on an empty stomach.",
+    body: "Food, rest, housing and possessions affect your happiness and health. Ignore hunger for too long and your health—and eventually your wallet—will suffer.",
+    icon: HeartPulse,
     accent: "#ff775f",
   },
   {
-    eyebrow: "RISK & INSURANCE",
-    title: "Expensive things attract expensive problems.",
-    body: "Insured possessions cost premiums but survive accidents and burglaries. Uninsured items can disappear completely. Highly leveraged trades can disappear even faster.",
-    icon: Shield,
+    eyebrow: "TRADING & THE PUBLIC BOARD",
+    title: "Crypto never waits for your turn.",
+    body: "Trading is a fast side game and does not consume weekly action time. Open long or short positions, manage risk, and watch every player’s open trades beneath their public profile.",
+    icon: TrendingUp,
     accent: "#76d4ff",
   },
 ];
@@ -285,16 +302,16 @@ function Landing({
       </header>
 
       <section className="welcome-copy">
-        <div className="eyebrow">A REAL-TIME SOCIAL TRADING GAME</div>
-        <h1>Make a fortune.<br />Try to enjoy it.</h1>
+        <div className="eyebrow">A SIMULTANEOUS CRYPTO-LIFE GAME</div>
+        <h1>Build a future.<br />Survive the fast lane.</h1>
         <p>
-          Invite your friends, trade the same moving market and build the happiest
-          expensive life before the clock reaches zero.
+          Invite your friends, race through one-minute weeks, study, work, eat,
+          build a home and trade the same live crypto market.
         </p>
         <div className="feature-row">
-          <span><Timer size={16} /> 15–60 minute matches</span>
+          <span><Timer size={16} /> Simultaneous 60-second weeks</span>
           <span><Users size={16} /> Private invite rooms</span>
-          <span><Heart size={16} /> Wealth + happiness scoring</span>
+          <span><Heart size={16} /> Wealth + life scoring</span>
         </div>
       </section>
 
@@ -577,28 +594,45 @@ function Standings({
         {ranked.map((player, index) => {
           const worth = netWorth(player, snapshot.markets);
           const score = finalScore(player, snapshot.markets);
+          const trades = Object.values(player.holdings).slice(0, 3);
           return (
-            <button
-              key={player.id}
-              className={`standing-card ${selectedId === player.id ? "active" : ""}`}
-              onClick={() => onSelect(player.id)}
-              style={{ "--player": player.color } as React.CSSProperties}
-            >
-              <span className="standing-rank">{index + 1}</span>
-              <span className="standing-avatar"><img src={avatars[player.avatar].image} alt="" /></span>
-              <span className="standing-copy">
-                <strong>{player.name}</strong>
-                <small>{getHome(player.homeId).name}</small>
-                <span className="mini-stats">
-                  <em><Heart size={10} /> {Math.round(player.happiness)}</em>
-                  <em><Gauge size={10} /> {happinessMultiplier(player.happiness).toFixed(2)}×</em>
+            <div className="standing-group" key={player.id}>
+              <button
+                className={`standing-card ${selectedId === player.id ? "active" : ""}`}
+                onClick={() => onSelect(player.id)}
+                style={{ "--player": player.color } as React.CSSProperties}
+              >
+                <span className="standing-rank">{index + 1}</span>
+                <span className="standing-avatar"><img src={avatars[player.avatar].image} alt="" /></span>
+                <span className="standing-copy">
+                  <strong>{player.name}</strong>
+                  <small>{player.persona ?? "Crypto hopeful"} · {getLocation(player.locationId ?? "apartment").name}</small>
+                  <span className="mini-stats">
+                    <em><Heart size={10} /> {Math.round(player.happiness)}</em>
+                    <em><Gauge size={10} /> {happinessMultiplier(player.happiness).toFixed(2)}×</em>
+                  </span>
                 </span>
-              </span>
-              <span className="standing-money">
-                <strong>{money(score, true)}</strong>
-                <small>{money(worth, true)} wealth</small>
-              </span>
-            </button>
+                <span className="standing-money">
+                  <strong>{money(score, true)}</strong>
+                  <small>{money(worth, true)} wealth</small>
+                </span>
+              </button>
+              <div className="standing-trades">
+                <span>TRADES</span>
+                {trades.length ? trades.map((holding) => {
+                  const market = snapshot.markets[holding.symbol];
+                  const roi = positionRoiPct(holding, market?.price ?? holding.averagePrice);
+                  return (
+                    <div key={holding.id}>
+                      <strong>{market?.symbol ?? "?"} {holding.side === "long" ? "LONG" : "SHORT"} {holding.leverage}×</strong>
+                      <em className={roi >= 0 ? "positive-text" : "negative-text"}>
+                        {roi >= 0 ? "+" : ""}{roi.toFixed(1)}%
+                      </em>
+                    </div>
+                  );
+                }) : <small>No open trades</small>}
+              </div>
+            </div>
           );
         })}
       </div>
@@ -978,54 +1012,164 @@ function TradeDesk({
   );
 }
 
-function LifeDesk({
-  snapshot,
+function CityDesk({
   me,
-  onMove,
+  onTravel,
+  onStudy,
+  onApply,
+  onWork,
+  onEat,
+  onRest,
+  onScheme,
+  onMoveHome,
 }: {
-  snapshot: GameSnapshot;
   me: PlayerState;
-  onMove: (homeId: string) => void;
+  onTravel: (locationId: LocationId) => void;
+  onStudy: (skillId: SkillId) => void;
+  onApply: (jobId: string) => void;
+  onWork: () => void;
+  onEat: (meal: "noodles" | "proper_meal" | "brain_food") => void;
+  onRest: () => void;
+  onScheme: (actionId: ApartmentActionId) => void;
+  onMoveHome: (homeId: string) => void;
 }) {
+  const locationId = me.locationId ?? "apartment";
+  const currentJob = getJob(me.jobId);
   return (
-    <div className="desk-content life-desk">
+    <div className="desk-content life-desk city-desk">
       <div className="life-summary">
-        <div><Heart size={18} /><span><small>Happiness</small><strong>{Math.round(me.happiness)} / 100</strong></span></div>
-        <div><Gauge size={18} /><span><small>Score multiplier</small><strong>{happinessMultiplier(me.happiness).toFixed(2)}×</strong></span></div>
+        <div><Clock3 size={18} /><span><small>Week time</small><strong>{Math.round(me.timeRemaining ?? 60)} / 60</strong></span></div>
+        <div><Heart size={18} /><span><small>Health / Hunger</small><strong>{Math.round(me.health ?? 100)} / {Math.round(me.hunger ?? 80)}</strong></span></div>
       </div>
-      <p className="desk-explainer">Homes set a stronger happiness baseline but charge upkeep at every billing cycle.</p>
-      <div className="shop-list">
-        {homeOptions.map((home) => {
-          const owned = me.homeId === home.id;
-          return (
-            <article className={owned ? "owned" : ""} key={home.id}>
-              <span className="shop-emoji">{home.icon}</span>
-              <div>
-                <strong>{home.name}</strong>
-                <p>{home.description}</p>
-                <span className="shop-meta">
-                  <em><Heart size={11} /> {home.happiness}</em>
-                  <em><CircleDollarSign size={11} /> {money(home.upkeep)} bills</em>
-                </span>
-              </div>
-              <button disabled={owned || me.cash < home.moveInCost} onClick={() => onMove(home.id)}>
-                {owned ? "Current home" : home.moveInCost ? `Move · ${money(home.moveInCost, true)}` : "Starter"}
-              </button>
+      <div className="current-location">
+        <span>{getLocation(locationId).icon}</span>
+        <div><small>CURRENT LOCATION</small><strong>{getLocation(locationId).name}</strong><p>{getLocation(locationId).description}</p></div>
+      </div>
+
+      <small className="section-label">TRAVEL · 6 MINUTES</small>
+      <div className="city-location-grid">
+        {locations.map((location) => (
+          <button
+            key={location.id}
+            className={locationId === location.id ? "active" : ""}
+            disabled={locationId === location.id || (me.timeRemaining ?? 60) < 6}
+            onClick={() => onTravel(location.id)}
+          >
+            <span>{location.icon}</span><strong>{location.name}</strong>
+          </button>
+        ))}
+      </div>
+
+      {locationId === "academy" && (
+        <section className="city-action-section">
+          <small className="section-label">CHAIN ACADEMY · 20 MINUTES PER SESSION</small>
+          {skillOptions.map((skill) => {
+            const progress = me.studyProgress?.[skill.id] ?? 0;
+            const qualified = Boolean(me.skills?.[skill.id]);
+            const blocked = Boolean(skill.prerequisite && !me.skills?.[skill.prerequisite]);
+            return (
+              <article className="study-card" key={skill.id}>
+                <span>{skill.icon}</span>
+                <div>
+                  <strong>{skill.name}</strong>
+                  <p>{skill.description}</p>
+                  <em>{qualified ? "QUALIFIED" : `${progress}/${skill.studyRequired} study`}</em>
+                </div>
+                <button disabled={qualified || blocked || (me.timeRemaining ?? 0) < 20} onClick={() => onStudy(skill.id)}>
+                  {blocked ? `Needs ${getSkill(skill.prerequisite!).name}` : qualified ? "Complete" : "Study"}
+                </button>
+              </article>
+            );
+          })}
+        </section>
+      )}
+
+      {locationId === "work_hub" && (
+        <section className="city-action-section">
+          {currentJob && (
+            <article className="current-job-card">
+              <div><small>CURRENT JOB</small><strong>{currentJob.name}</strong><p>{money(currentJob.pay)} per shift · {currentJob.timeCost} minutes</p></div>
+              <button disabled={(me.timeRemaining ?? 0) < currentJob.timeCost} onClick={onWork}>Clock in</button>
             </article>
-          );
-        })}
-      </div>
+          )}
+          <small className="section-label">CAREER BOARD</small>
+          {jobOptions.map((job) => {
+            const qualified = !job.skill || (me.skills?.[job.skill] ?? 0) >= (job.skillLevel ?? 1);
+            return (
+              <article className="job-card" key={job.id}>
+                <div><strong>{job.name}</strong><p>{job.description}</p><em>{money(job.pay)} / shift</em></div>
+                <button disabled={!qualified || me.jobId === job.id || (me.timeRemaining ?? 0) < 8} onClick={() => onApply(job.id)}>
+                  {!qualified ? `Needs ${getSkill(job.skill!).name}` : me.jobId === job.id ? "Employed" : "Apply · 8m"}
+                </button>
+              </article>
+            );
+          })}
+        </section>
+      )}
+
+      {locationId === "food_market" && (
+        <section className="city-action-section food-actions">
+          <small className="section-label">EAT · 6 MINUTES</small>
+          <button onClick={() => onEat("noodles")} disabled={me.cash < 90}>🍜 Noodles · $90</button>
+          <button onClick={() => onEat("proper_meal")} disabled={me.cash < 260}>🥩 Proper meal · $260</button>
+          <button onClick={() => onEat("brain_food")} disabled={me.cash < 480}>🥗 Brain food · $480</button>
+        </section>
+      )}
+
+      {locationId === "apartment" && (
+        <section className="city-action-section">
+          <button className="rest-button" disabled={(me.timeRemaining ?? 0) < 15} onClick={onRest}>😴 Rest at home · 15m</button>
+          <small className="section-label">COMPUTER ACTIONS</small>
+          {[
+            ["bug_bounty", "🛡️ Security bug bounty", "cybersecurity", 18],
+            ["persuasion_hustle", "☎️ Persuasion hustle", "social_engineering", 15],
+            ["viral_campaign", "📣 Viral token campaign", "digital_marketing", 16],
+            ["shadow_market", "🕶️ Underground market prototype", "blockchain", 24],
+          ].map(([id, label, skill, cost]) => (
+            <button
+              className="scheme-button"
+              key={id}
+              disabled={!me.skills?.[skill as SkillId] || (me.timeRemaining ?? 0) < Number(cost)}
+              onClick={() => onScheme(id as ApartmentActionId)}
+            >
+              <strong>{label}</strong><small>{me.skills?.[skill as SkillId] ? `${cost} minutes · random outcome` : `Requires ${getSkill(skill as SkillId).name}`}</small>
+            </button>
+          ))}
+          <small className="section-label">HOUSING</small>
+          {homeOptions.map((home) => {
+            const owned = me.homeId === home.id;
+            return (
+              <article className={`compact-home ${owned ? "owned" : ""}`} key={home.id}>
+                <span>{home.icon}</span><div><strong>{home.name}</strong><small>♥ {home.happiness} · {money(home.upkeep)} bills</small></div>
+                <button disabled={owned || me.cash < home.moveInCost} onClick={() => onMoveHome(home.id)}>
+                  {owned ? "Current" : home.moveInCost ? money(home.moveInCost, true) : "Starter"}
+                </button>
+              </article>
+            );
+          })}
+        </section>
+      )}
+
+      {locationId === "furniture_store" && (
+        <p className="desk-explainer">Open the Assets tab to buy beds, computers, cars and watches while you are here.</p>
+      )}
+
+      {locationId === "crypto_exchange" && (
+        <p className="desk-explainer">Open the Trade tab to search coins and manage positions. Trading does not consume weekly action time.</p>
+      )}
     </div>
   );
 }
 
 function AssetDesk({
   me,
+  canShop,
   onBuy,
   onInsure,
   onSell,
 }: {
   me: PlayerState;
+  canShop: boolean;
   onBuy: (id: string, insured: boolean) => void;
   onInsure: (instanceId: string) => void;
   onSell: (instanceId: string) => void;
@@ -1034,6 +1178,7 @@ function AssetDesk({
   return (
     <div className="desk-content asset-desk">
       <p className="desk-explainer">Collectibles can appreciate and raise happiness. Insurance costs money now and during billing, but protects the whole item.</p>
+      {!canShop && <div className="location-warning">Travel to Block & Bed before buying new possessions.</div>}
       {me.assets.length > 0 && (
         <section className="owned-assets">
           <small>YOUR COLLECTION</small>
@@ -1079,7 +1224,7 @@ function AssetDesk({
                 <input type="checkbox" checked={insured} onChange={(event) => setInsuranceChoice((current) => ({ ...current, [item.id]: event.target.checked }))} />
                 <span><Shield size={12} /> Insurance {money(premium, true)}</span>
               </label>
-              <button disabled={me.cash < item.price + (insured ? premium : 0)} onClick={() => onBuy(item.id, insured)}>
+              <button disabled={!canShop || me.cash < item.price + (insured ? premium : 0)} onClick={() => onBuy(item.id, insured)}>
                 Buy · {money(item.price + (insured ? premium : 0), true)}
               </button>
             </article>
@@ -1104,6 +1249,7 @@ function GameBoard({
   const [deskTab, setDeskTab] = useState<DeskTab>("trade");
   const [selectedId, setSelectedId] = useState(me.id);
   const [mobileDesk, setMobileDesk] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
   const [, forceClock] = useState(0);
   const selected = snapshot.players[selectedId] ?? me;
   const primaryMarket = snapshot.markets["crypto:bitcoin"] ?? Object.values(snapshot.markets)[0];
@@ -1114,7 +1260,17 @@ function GameBoard({
   }, []);
 
   const remaining = (snapshot.endsAt ?? Date.now()) - Date.now();
+  const roundRemaining = (snapshot.roundEndsAt ?? Date.now()) - Date.now();
   const worth = netWorth(me, snapshot.markets);
+  const runAction = async (reducer: (game: GameSnapshot) => void) => {
+    if (actionBusy) return;
+    setActionBusy(true);
+    try {
+      await onAction(reducer);
+    } finally {
+      setActionBusy(false);
+    }
+  };
 
   const buy = (
     symbol: string,
@@ -1126,25 +1282,32 @@ function GameBoard({
       takeProfitPct: number;
       trailingPct: number;
     },
-  ) => onAction((game) => { buyStock(game, me.id, symbol, amount, options); });
-  const sell = (positionId: string) => onAction((game) => { sellStock(game, me.id, positionId); });
+  ) => runAction((game) => { buyStock(game, me.id, symbol, amount, options); });
+  const sell = (positionId: string) => runAction((game) => { sellStock(game, me.id, positionId); });
   const addCrypto = async (coin: CryptoCoinDetail) => {
-    await onAction((game) => {
+    await runAction((game) => {
       upsertLiveMarket(game, coin);
     });
     return coin.marketKey;
   };
-  const move = (homeId: string) => onAction((game) => { moveHome(game, me.id, homeId); });
-  const purchaseAsset = (id: string, insured: boolean) => onAction((game) => { buyAsset(game, me.id, id, insured); });
-  const insure = (instanceId: string) => onAction((game) => { insureAsset(game, me.id, instanceId); });
-  const sellPossession = (instanceId: string) => onAction((game) => { sellAsset(game, me.id, instanceId); });
+  const move = (homeId: string) => runAction((game) => { moveHome(game, me.id, homeId); });
+  const travel = (locationId: LocationId) => runAction((game) => { travelTo(game, me.id, locationId); });
+  const study = (skillId: SkillId) => runAction((game) => { studySkill(game, me.id, skillId); });
+  const apply = (jobId: string) => runAction((game) => { applyForJob(game, me.id, jobId); });
+  const work = () => runAction((game) => { workShift(game, me.id); });
+  const eat = (meal: "noodles" | "proper_meal" | "brain_food") => runAction((game) => { buyMeal(game, me.id, meal); });
+  const rest = () => runAction((game) => { restAtHome(game, me.id); });
+  const scheme = (actionId: ApartmentActionId) => runAction((game) => { attemptApartmentAction(game, me.id, actionId); });
+  const purchaseAsset = (id: string, insured: boolean) => runAction((game) => { buyAsset(game, me.id, id, insured); });
+  const insure = (instanceId: string) => runAction((game) => { insureAsset(game, me.id, instanceId); });
+  const sellPossession = (instanceId: string) => runAction((game) => { sellAsset(game, me.id, instanceId); });
 
   return (
     <main className="game-shell">
       <header className="game-header">
         <Brand compact />
         <div className="match-status">
-          <span className="live-dot" /> LIVE · {snapshot.durationMinutes} MIN MATCH
+          <span className="live-dot" /> WEEK {snapshot.roundNumber ?? 1} · {formatClock(roundRemaining)}
         </div>
         <div className="header-score">
           <span><WalletCards size={14} /> {money(worth)}</span>
@@ -1172,17 +1335,21 @@ function GameBoard({
           </div>
 
           {Object.values(snapshot.players).map((player, index) => {
-            const positions = [
-              { left: "25%", top: "33%" },
-              { left: "72%", top: "32%" },
-              { left: "29%", top: "70%" },
-              { left: "73%", top: "70%" },
-            ];
+            const locationPositions: Record<LocationId, { left: string; top: string }> = {
+              apartment: { left: "20%", top: "70%" },
+              academy: { left: "23%", top: "35%" },
+              work_hub: { left: "76%", top: "34%" },
+              food_market: { left: "50%", top: "72%" },
+              furniture_store: { left: "78%", top: "70%" },
+              crypto_exchange: { left: "50%", top: "37%" },
+            };
+            const base = locationPositions[player.locationId ?? "apartment"];
+            const offset = (index % 3) * 4;
             return (
               <button
                 className={`board-player ${selectedId === player.id ? "active" : ""}`}
                 key={player.id}
-                style={{ ...positions[index % positions.length], "--player": player.color } as React.CSSProperties}
+                style={{ left: `calc(${base.left} + ${offset}px)`, top: `calc(${base.top} + ${offset}px)`, "--player": player.color } as React.CSSProperties}
                 onClick={() => setSelectedId(player.id)}
               >
                 <span><img src={avatars[player.avatar].image} alt="" /></span>
@@ -1205,17 +1372,17 @@ function GameBoard({
           </div>
         </section>
 
-        <aside className={`player-desk glass-panel ${mobileDesk ? "mobile-open" : ""}`}>
+        <aside className={`player-desk glass-panel ${mobileDesk ? "mobile-open" : ""} ${actionBusy ? "desk-saving" : ""}`} aria-busy={actionBusy}>
           <div className="desk-header">
             <div>
               <span>MY PRIVATE DESK</span>
-              <strong>{money(me.cash)} cash</strong>
+              <strong>{actionBusy ? "Saving action…" : `${money(me.cash)} cash`}</strong>
             </div>
             <button className="desk-close" onClick={() => setMobileDesk(false)}><X size={18} /></button>
           </div>
           <div className="desk-tabs">
             <button className={deskTab === "trade" ? "active" : ""} onClick={() => setDeskTab("trade")}><BarChart3 size={15} /> Trade</button>
-            <button className={deskTab === "life" ? "active" : ""} onClick={() => setDeskTab("life")}><House size={15} /> Home</button>
+            <button className={deskTab === "life" ? "active" : ""} onClick={() => setDeskTab("life")}><House size={15} /> City</button>
             <button className={deskTab === "assets" ? "active" : ""} onClick={() => setDeskTab("assets")}><ShoppingBag size={15} /> Assets</button>
           </div>
           {deskTab === "trade" && (
@@ -1227,8 +1394,20 @@ function GameBoard({
               onAddCrypto={addCrypto}
             />
           )}
-          {deskTab === "life" && <LifeDesk snapshot={snapshot} me={me} onMove={move} />}
-          {deskTab === "assets" && <AssetDesk me={me} onBuy={purchaseAsset} onInsure={insure} onSell={sellPossession} />}
+          {deskTab === "life" && (
+            <CityDesk
+              me={me}
+              onTravel={travel}
+              onStudy={study}
+              onApply={apply}
+              onWork={work}
+              onEat={eat}
+              onRest={rest}
+              onScheme={scheme}
+              onMoveHome={move}
+            />
+          )}
+          {deskTab === "assets" && <AssetDesk me={me} canShop={(me.locationId ?? "apartment") === "furniture_store"} onBuy={purchaseAsset} onInsure={insure} onSell={sellPossession} />}
         </aside>
 
         <EventFeed events={snapshot.events} players={snapshot.players} />
@@ -1239,7 +1418,7 @@ function GameBoard({
       </button>
       <footer className="game-ticker">
         <span><Radio size={13} /> FAST LANE LIVE</span>
-        <div>Crypto remains the main engine of wealth · Happiness adjusts final score · Insure what you cannot afford to lose · Next billing cycle approaching</div>
+        <div>One-minute weeks · Study, work, eat and rest · Trading continues between actions · Happiness adjusts the final score</div>
       </footer>
     </main>
   );
@@ -1295,10 +1474,10 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
         <span><HelpCircle size={20} /> QUICK RULES</span>
         <h2>How to win the Fast Lane</h2>
         <div className="help-grid">
-          <article><TrendingUp size={22} /><strong>Trade with leverage</strong><p>Go long or short at 1×–100×. Stop-loss, take-profit and trailing exits can close positions automatically.</p></article>
-          <article><Home size={22} /><strong>Upgrade your home</strong><p>Better housing raises happiness but charges larger recurring bills.</p></article>
-          <article><Car size={22} /><strong>Own valuables</strong><p>Cars and watches change value, add happiness and can be sold before time expires.</p></article>
-          <article><Shield size={22} /><strong>Manage insurance</strong><p>Coverage costs premiums. Uninsured possessions can be lost to accidents or burglary.</p></article>
+          <article><Timer size={22} /><strong>Use each week</strong><p>Everyone acts simultaneously. Travel, study, work, food and rest consume your 60 weekly action minutes.</p></article>
+          <article><GraduationCap size={22} /><strong>Build useful skills</strong><p>Qualifications unlock careers and fictional computer actions with uncertain rewards and consequences.</p></article>
+          <article><HeartPulse size={22} /><strong>Stay functional</strong><p>Food, rest, housing and possessions support health and happiness. Neglect creates penalties.</p></article>
+          <article><TrendingUp size={22} /><strong>Trade on the side</strong><p>Crypto positions use no action minutes. Leverage and automatic exits can help—or erase margin quickly.</p></article>
         </div>
         <div className="formula-card">
           <span>WINNING FORMULA</span>
@@ -1398,7 +1577,10 @@ function App() {
       if (!persisted) return;
       lastUserActionAt.current = Date.now();
       try {
-        const next = await updatePersistedGame(persisted.snapshot.code, reducer);
+        const next = await updatePersistedGame(persisted.snapshot.code, (game) => {
+          advanceGameRounds(game, Date.now());
+          reducer(game);
+        });
         setPersisted(next);
         setError("");
       } catch (cause) {
@@ -1415,6 +1597,46 @@ function App() {
     setShowTutorial(false);
     updateUrl();
   };
+
+  useEffect(() => {
+    const snapshot = persisted?.snapshot;
+    if (
+      !snapshot ||
+      snapshot.status !== "playing" ||
+      snapshot.hostId !== identity ||
+      !snapshot.roundEndsAt
+    ) return;
+
+    let cancelled = false;
+    let retryTimer = 0;
+    const advanceRound = async () => {
+      if (cancelled) return;
+      try {
+        const next = await updatePersistedGame(snapshot.code, (game) => {
+          advanceGameRounds(game, Date.now());
+        });
+        if (!cancelled) setPersisted(next);
+      } catch (cause) {
+        console.warn("Week reset will retry shortly.", cause);
+        if (!cancelled) {
+          retryTimer = window.setTimeout(advanceRound, 2_500);
+        }
+      }
+    };
+    const delay = Math.max(100, snapshot.roundEndsAt - Date.now() + 150);
+    const timer = window.setTimeout(advanceRound, delay);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      window.clearTimeout(retryTimer);
+    };
+  }, [
+    identity,
+    persisted?.snapshot.code,
+    persisted?.snapshot.hostId,
+    persisted?.snapshot.roundEndsAt,
+    persisted?.snapshot.status,
+  ]);
 
   useEffect(() => {
     const snapshot = persisted?.snapshot;
@@ -1459,7 +1681,7 @@ function App() {
       } finally {
         tickBusy.current = false;
       }
-    }, 15_000);
+    }, 10_000);
     return () => window.clearInterval(interval);
   }, [
     identity,
@@ -1514,6 +1736,11 @@ function App() {
           game.status = "playing";
           game.startedAt = now;
           game.endsAt = now + game.durationMinutes * 60_000;
+          game.roundNumber = 1;
+          game.roundEndsAt = now + 60_000;
+          Object.values(game.players).forEach((player) => {
+            player.timeRemaining = 60;
+          });
           game.lastMarketTick = now;
           game.nextIncidentAt = now + 35_000;
           game.nextBillingAt = now + game.durationMinutes * 60_000 / 6;

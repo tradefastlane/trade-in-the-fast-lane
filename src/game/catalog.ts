@@ -1,4 +1,11 @@
-import type { AvatarId, CatalogAsset, HomeOption } from "./types";
+import type {
+  AvatarId,
+  CatalogAsset,
+  HomeOption,
+  JobOption,
+  LocationOption,
+  SkillOption,
+} from "./types";
 
 export const STARTING_CASH = 50_000;
 
@@ -63,6 +70,28 @@ export const homeOptions: HomeOption[] = [
 
 export const assetCatalog: CatalogAsset[] = [
   {
+    id: "proper-bed",
+    name: "Actually Comfortable Bed",
+    category: "furniture",
+    price: 1_800,
+    happiness: 8,
+    volatility: 0.002,
+    insuranceRate: 0.02,
+    icon: "🛏️",
+    description: "Sleep is the original proof-of-rest protocol.",
+  },
+  {
+    id: "dev-workstation",
+    name: "Mining-Class Workstation",
+    category: "computer",
+    price: 4_200,
+    happiness: 6,
+    volatility: 0.01,
+    insuranceRate: 0.04,
+    icon: "🖥️",
+    description: "Required by nobody, desired by every aspiring protocol founder.",
+  },
+  {
     id: "steel-watch",
     name: "Steel Chronograph",
     category: "watch",
@@ -115,10 +144,48 @@ export const durationOptions = [
 ];
 
 export const botProfiles = [
-  { name: "Bulliam Shakeshares", avatar: "alex" as const, skill: 0.84 },
-  { name: "Chad GPT", avatar: "dante" as const, skill: 0.78 },
-  { name: "Wanda Calls", avatar: "mina" as const, skill: 0.88 },
-  { name: "Debbie Down Jones", avatar: "jules" as const, skill: 0.82 },
-  { name: "Sir Buys-a-Lot", avatar: "alex" as const, skill: 0.76 },
-  { name: "Margin Simpson", avatar: "dante" as const, skill: 0.8 },
+  { name: "Laser-Eye Larry", avatar: "alex" as const, skill: 0.84 },
+  { name: "Protocol Prophet", avatar: "dante" as const, skill: 0.78 },
+  { name: "Whale Whisperer", avatar: "mina" as const, skill: 0.88 },
+  { name: "Privacy Max", avatar: "jules" as const, skill: 0.82 },
+  { name: "The Yield Baron", avatar: "alex" as const, skill: 0.76 },
+  { name: "Hashrate Harriet", avatar: "dante" as const, skill: 0.8 },
+];
+
+export const personas = [
+  "Laser-Eyed Maximalist",
+  "Mysterious Protocol Founder",
+  "Privacy-Tech Mogul",
+  "Loud Token Influencer",
+  "Underground Marketplace Dreamer",
+  "Corporate Treasury Oracle",
+  "Meme-Coin Aristocrat",
+  "Anonymous Cypherpunk",
+];
+
+export const locations: LocationOption[] = [
+  { id: "apartment", name: "Apartment", icon: "🏠", description: "Rest, use your computer and attempt skill-based side projects." },
+  { id: "academy", name: "Chain Academy", icon: "🎓", description: "Study modern technical and persuasion skills." },
+  { id: "work_hub", name: "Gig & Career Hub", icon: "💼", description: "Apply for jobs and clock paid work." },
+  { id: "food_market", name: "Satoshi Snacks", icon: "🍜", description: "Buy food before hunger wrecks your health." },
+  { id: "furniture_store", name: "Block & Bed", icon: "🛏️", description: "Furniture and equipment improve quality of life." },
+  { id: "crypto_exchange", name: "Fast Lane Exchange", icon: "📈", description: "Search markets and manage leveraged crypto trades." },
+];
+
+export const skillOptions: SkillOption[] = [
+  { id: "programming", name: "Programming", icon: "💻", description: "The foundation for technical careers.", studyRequired: 60 },
+  { id: "blockchain", name: "Blockchain Engineering", icon: "⛓️", description: "Build protocols and smart-contract products.", studyRequired: 80, prerequisite: "programming" },
+  { id: "cybersecurity", name: "Cybersecurity", icon: "🛡️", description: "Unlock legal security challenges and bug bounties.", studyRequired: 80, prerequisite: "programming" },
+  { id: "quantum", name: "Quantum Computing", icon: "⚛️", description: "Elite research qualification with rare high-paying work.", studyRequired: 120, prerequisite: "blockchain" },
+  { id: "social_engineering", name: "Social Engineering", icon: "🎭", description: "Read people, negotiate and attempt risky persuasion hustles.", studyRequired: 60 },
+  { id: "digital_marketing", name: "Online Marketing", icon: "📣", description: "Build audiences, campaigns and questionable hype machines.", studyRequired: 50 },
+];
+
+export const jobOptions: JobOption[] = [
+  { id: "courier", name: "Hardware Wallet Courier", locationId: "work_hub", pay: 650, timeCost: 20, happiness: -1, description: "No qualifications required. Your calves become decentralized." },
+  { id: "moderator", name: "Community Moderator", locationId: "work_hub", pay: 1_100, timeCost: 20, happiness: 0, skill: "digital_marketing", skillLevel: 1, description: "Manage a community that is permanently asking when moon." },
+  { id: "junior_dev", name: "Junior Developer", locationId: "work_hub", pay: 1_600, timeCost: 20, happiness: 1, skill: "programming", skillLevel: 1, description: "Fix bugs introduced by someone whose avatar is an ape." },
+  { id: "contract_dev", name: "Protocol Engineer", locationId: "work_hub", pay: 2_500, timeCost: 20, happiness: 2, skill: "blockchain", skillLevel: 1, description: "Ship code while the treasury nervously watches." },
+  { id: "security_analyst", name: "Security Analyst", locationId: "work_hub", pay: 2_800, timeCost: 20, happiness: 1, skill: "cybersecurity", skillLevel: 1, description: "Find vulnerabilities before someone with fewer ethics does." },
+  { id: "quantum_researcher", name: "Quantum Ledger Researcher", locationId: "work_hub", pay: 4_500, timeCost: 25, happiness: 3, skill: "quantum", skillLevel: 1, description: "Explain qubits to executives using increasingly desperate metaphors." },
 ];
