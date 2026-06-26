@@ -168,6 +168,39 @@ export const assetCatalog: CatalogAsset[] = [
     icon: "🖼️",
     description: "Physical proof that digital culture can still occupy wall space.",
   },
+  {
+    id: "ether-ape-nft",
+    name: "Ether Ape #404",
+    category: "nft",
+    price: 6_800,
+    happiness: 9,
+    volatility: 0.075,
+    insuranceRate: 0.025,
+    icon: "🐵",
+    description: "A fictional NFT with rare sunglasses and extremely common price anxiety.",
+  },
+  {
+    id: "moon-cat-nft",
+    name: "Moon Cat Genesis",
+    category: "nft",
+    price: 3_600,
+    happiness: 6,
+    volatility: 0.09,
+    insuranceRate: 0.02,
+    icon: "🐈‍⬛",
+    description: "A scarce fictional cat JPEG with a surprisingly liquid rumor market.",
+  },
+  {
+    id: "metaverse-land-deed",
+    name: "Metaverse Corner Plot",
+    category: "nft",
+    price: 11_000,
+    happiness: 12,
+    volatility: 0.11,
+    insuranceRate: 0.03,
+    icon: "🌐",
+    description: "Virtual land beside a digital highway that may eventually contain traffic.",
+  },
 ];
 
 export const durationOptions = [
@@ -203,7 +236,7 @@ export const locations: LocationOption[] = [
   { id: "food_market", name: "Satoshi Snacks", icon: "🍜", description: "Buy food before hunger wrecks your health.", x: 48, y: 76 },
   { id: "furniture_store", name: "Block & Bed", icon: "🛏️", description: "Buy furniture and computers for a better home life.", x: 79, y: 70 },
   { id: "car_dealer", name: "Fast Lane Motors", icon: "🚘", description: "Upgrade the car that carries you around the city.", x: 64, y: 80 },
-  { id: "collectibles_store", name: "Collectors' Corner", mapName: "Collectors' Corner", icon: "🃏", description: "Buy watches, cards and other speculative treasures.", x: 82, y: 51 },
+  { id: "collectibles_store", name: "Fast Lane Pawn Shop", mapName: "Pawn Shop", icon: "🏪", description: "Buy and sell watches, NFTs, cards and speculative collectibles.", x: 82, y: 51 },
   { id: "crypto_exchange", name: "Fast Lane Exchange", mapName: "Crypto Exchange", icon: "📈", description: "Search markets and manage leveraged crypto trades.", x: 49, y: 35 },
 ];
 

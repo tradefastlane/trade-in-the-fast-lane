@@ -72,7 +72,6 @@ import {
   getSkill,
   happinessMultiplier,
   holdingProfit,
-  insureAsset,
   makePlayer,
   moveHome,
   netWorth,
@@ -1034,6 +1033,7 @@ function CityDesk({
   onScheme,
   onMoveHome,
   onBuyAsset,
+  onSellAsset,
 }: {
   me: PlayerState;
   onStudy: (skillId: SkillId) => void;
@@ -1044,6 +1044,7 @@ function CityDesk({
   onScheme: (actionId: ApartmentActionId) => void;
   onMoveHome: (homeId: string) => void;
   onBuyAsset: (id: string, insured: boolean) => void;
+  onSellAsset: (instanceId: string) => void;
 }) {
   const locationId = me.locationId ?? "apartment";
   const currentJob = getJob(me.jobId);
@@ -1055,7 +1056,7 @@ function CityDesk({
   const shopCategories =
     locationId === "furniture_store" ? new Set(["furniture", "computer"])
       : locationId === "car_dealer" ? new Set(["car"])
-        : locationId === "collectibles_store" ? new Set(["watch", "collectible"])
+        : locationId === "collectibles_store" ? new Set(["watch", "collectible", "nft"])
           : null;
   const shopItems = shopCategories
     ? assetCatalog.filter((item) => shopCategories.has(item.category))
@@ -1181,6 +1182,27 @@ function CityDesk({
               </article>
             );
           })}
+          {locationId === "collectibles_store" && me.assets.some((owned) => {
+            const item = getCatalogAsset(owned.catalogId);
+            return item && ["watch", "collectible", "nft"].includes(item.category);
+          }) && (
+            <>
+              <small className="section-label">PAWN YOUR ITEMS</small>
+              {me.assets.filter((owned) => {
+                const item = getCatalogAsset(owned.catalogId);
+                return item && ["watch", "collectible", "nft"].includes(item.category);
+              }).map((owned) => {
+                const item = getCatalogAsset(owned.catalogId)!;
+                return (
+                  <article key={owned.instanceId}>
+                    <span className="shop-emoji">{item.icon}</span>
+                    <div><strong>{item.name}</strong><p>Current market value {money(owned.currentValue)}</p></div>
+                    <button onClick={() => onSellAsset(owned.instanceId)}>Pawn · {money(owned.currentValue, true)}</button>
+                  </article>
+                );
+              })}
+            </>
+          )}
         </section>
       )}
 
@@ -1191,18 +1213,10 @@ function CityDesk({
   );
 }
 
-function AssetDesk({
-  me,
-  onInsure,
-  onSell,
-}: {
-  me: PlayerState;
-  onInsure: (instanceId: string) => void;
-  onSell: (instanceId: string) => void;
-}) {
+function AssetDesk({ me }: { me: PlayerState }) {
   return (
     <div className="desk-content asset-desk">
-      <p className="desk-explainer">This is your portfolio only. Buy items by driving to Block & Bed, Fast Lane Motors or Collectors' Corner on the map.</p>
+      <p className="desk-explainer">Read-only asset portfolio. Buy or pawn watches, NFTs and collectibles at the Pawn Shop; buy cars and furniture at their map locations.</p>
       {me.assets.length > 0 && (
         <section className="owned-assets">
           <small>YOUR COLLECTION</small>
@@ -1228,16 +1242,12 @@ function AssetDesk({
                   {owned.insured ? <Shield size={12} /> : <ShieldAlert size={12} />}
                   {owned.insured ? "Insured" : "At risk"}
                 </span>
-                <div className="asset-actions">
-                  {!owned.insured && <button onClick={() => onInsure(owned.instanceId)}>Insure</button>}
-                  <button onClick={() => onSell(owned.instanceId)}>Sell</button>
-                </div>
               </article>
             );
           })}
         </section>
       )}
-      {me.assets.length === 0 && <div className="location-warning">No assets yet. Choose a shop building on the map.</div>}
+      {me.assets.length === 0 && <div className="location-warning">No assets yet. Visit the Pawn Shop, Fast Lane Motors or Block & Bed on the map.</div>}
     </div>
   );
 }
@@ -1321,7 +1331,6 @@ function GameBoard({
   const rest = () => runAction((game) => { restAtHome(game, me.id); });
   const scheme = (actionId: ApartmentActionId) => runAction((game) => { attemptApartmentAction(game, me.id, actionId); });
   const purchaseAsset = (id: string, insured: boolean) => runAction((game) => { buyAsset(game, me.id, id, insured); });
-  const insure = (instanceId: string) => runAction((game) => { insureAsset(game, me.id, instanceId); });
   const sellPossession = (instanceId: string) => runAction((game) => { sellAsset(game, me.id, instanceId); });
 
   return (
@@ -1454,9 +1463,10 @@ function GameBoard({
               onScheme={scheme}
               onMoveHome={move}
               onBuyAsset={purchaseAsset}
+              onSellAsset={sellPossession}
             />
           )}
-          {deskTab === "assets" && <AssetDesk me={me} onInsure={insure} onSell={sellPossession} />}
+          {deskTab === "assets" && <AssetDesk me={me} />}
         </aside>
 
         <EventFeed events={snapshot.events} players={snapshot.players} />

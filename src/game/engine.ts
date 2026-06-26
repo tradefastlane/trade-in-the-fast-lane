@@ -735,7 +735,7 @@ export const buyAsset = (
   resolveTravel(player);
   const requiredLocation: LocationId =
     item.category === "car" ? "car_dealer"
-      : item.category === "watch" || item.category === "collectible"
+      : item.category === "watch" || item.category === "collectible" || item.category === "nft"
         ? "collectibles_store"
         : "furniture_store";
   if (player.travelingTo || player.locationId !== requiredLocation) return false;

@@ -136,7 +136,7 @@ export type PersistedGame = {
 export type CatalogAsset = {
   id: string;
   name: string;
-  category: "watch" | "car" | "furniture" | "computer" | "collectible";
+  category: "watch" | "car" | "furniture" | "computer" | "collectible" | "nft";
   price: number;
   happiness: number;
   volatility: number;
