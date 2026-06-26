@@ -63,6 +63,7 @@ const mimeTypes = {
 
 function json(response, status, body) {
   response.writeHead(status, {
+    "Access-Control-Allow-Origin": "*",
     "Cache-Control": "no-store",
     "Content-Type": "application/json; charset=utf-8",
   });
@@ -414,7 +415,11 @@ async function serveStatic(response, pathname) {
 const server = createServer(async (request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
   if (request.method === "OPTIONS") {
-    response.writeHead(204);
+    response.writeHead(204, {
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Origin": "*",
+    });
     response.end();
     return;
   }

@@ -59,25 +59,30 @@ const configuredBaseUrl = (import.meta.env.VITE_MARKET_API_URL as string | undef
 export const marketApiBaseUrl = configuredBaseUrl || "";
 
 async function apiJson<T>(path: string, timeoutMs = 8_000): Promise<T> {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(`${marketApiBaseUrl}${path}`, {
-      signal: controller.signal,
-    });
-    const payload = (await response.json()) as T & { error?: string };
-    if (!response.ok) {
-      throw new Error(payload.error || "Market information is unavailable.");
+  const bases = [...new Set([marketApiBaseUrl, ""])];
+  let lastError: unknown = new Error("Market information is unavailable.");
+  for (const base of bases) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`${base}${path}`, {
+        signal: controller.signal,
+      });
+      const payload = (await response.json()) as T & { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || "Market information is unavailable.");
+      }
+      return payload;
+    } catch (error) {
+      lastError = error;
+    } finally {
+      window.clearTimeout(timeout);
     }
-    return payload;
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error("The market service took too long to respond.");
-    }
-    throw error;
-  } finally {
-    window.clearTimeout(timeout);
   }
+  if (lastError instanceof DOMException && lastError.name === "AbortError") {
+    throw new Error("The market service took too long to respond.");
+  }
+  throw lastError;
 }
 
 const assetToken = (marketKey: string, market: MarketState) => {
