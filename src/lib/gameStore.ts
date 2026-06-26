@@ -30,6 +30,15 @@ let identityRequest: Promise<string> | null = null;
 let cachedIdentity = "";
 let cachedExpiresAt = 0;
 let authRetryAt = 0;
+const gameCache = new Map<string, PersistedGame>();
+
+function rememberGame(code: string, game: PersistedGame) {
+  const normalized = code.toUpperCase();
+  const cached = gameCache.get(normalized);
+  if (cached && cached.version > game.version) return cached;
+  gameCache.set(normalized, game);
+  return game;
+}
 
 function migrateAuthStorage() {
   for (let index = 0; index < window.sessionStorage.length; index += 1) {
@@ -142,7 +151,7 @@ export async function createPersistedGame(snapshot: GameSnapshot) {
     .select("snapshot, version")
     .single();
   if (result.error) throw result.error;
-  return result.data as PersistedGame;
+  return rememberGame(snapshot.code, result.data as PersistedGame);
 }
 
 async function readPersistedGame(normalizedCode: string) {
@@ -152,7 +161,10 @@ async function readPersistedGame(normalizedCode: string) {
       .select("snapshot, version")
       .eq("code", normalizedCode)
       .maybeSingle();
-    if (!result.error) return (result.data as PersistedGame | null) ?? null;
+    if (!result.error) {
+      const game = (result.data as PersistedGame | null) ?? null;
+      return game ? rememberGame(normalizedCode, game) : null;
+    }
     if (!isRateLimitError(result.error) || attempt === RATE_LIMIT_RETRY_DELAYS.length) {
       throw result.error;
     }
@@ -183,9 +195,10 @@ async function updatePersistedGameNow(
   const normalized = code.toUpperCase();
   let foundGame = false;
   await ensureIdentity();
+  let current = gameCache.get(normalized) ?? null;
 
   for (let attempt = 0; attempt < UPDATE_ATTEMPTS; attempt += 1) {
-    const current = await readPersistedGame(normalized);
+    current ??= await readPersistedGame(normalized);
     if (!current) {
       await wait(100 + attempt * 100);
       continue;
@@ -210,7 +223,12 @@ async function updatePersistedGameNow(
       }
       throw result.error;
     }
-    if (result.data) return result.data as PersistedGame;
+    if (result.data) {
+      return rememberGame(normalized, result.data as PersistedGame);
+    }
+    // Another player or the host clock won the optimistic version race.
+    // Discard only this stale version, not our knowledge that the room exists.
+    current = null;
     await wait(40 + attempt * 35 + Math.random() * 60);
   }
 
@@ -254,7 +272,10 @@ export function subscribeToGame(
       },
       (payload) => {
         const row = payload.new as { snapshot: GameSnapshot; version: number };
-        onUpdate({ snapshot: row.snapshot, version: row.version });
+        onUpdate(rememberGame(normalized, {
+          snapshot: row.snapshot,
+          version: row.version,
+        }));
       },
     )
     .subscribe();
